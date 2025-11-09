@@ -3,35 +3,81 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multi-Shot YOLO Trainer</title>
+    <title>Persistent YOLO Prompter</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Custom styles */
         body { font-family: 'Inter', sans-serif; }
-        #annotation-container {
+        /* Page container */
+        .page { display: none; }
+        .page.active { display: block; }
+        /* Modal styles */
+        #annotate-modal { display: none; }
+        #annotate-modal.active { display: flex; }
+        #modal-annotation-container {
             position: relative;
             display: inline-block;
             background-color: #222;
         }
-        #annotation-canvas {
+        #modal-canvas {
             position: absolute;
             top: 0;
             left: 0;
             cursor: crosshair;
         }
-        #reference-image {
-            display: block;
-            max-width: 100%;
-            height: auto;
+        #modal-reference-image { display: block; max-width: 100%; height: auto; }
+        #modal-video-feed { display: block; width: 100%; height: auto; }
+        /* Editor styles */
+        #object-list li { cursor: pointer; }
+        #object-list li.active { background-color: #3b82f6; /* blue-500 */ }
+        #prompt-image-gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 0.5rem;
         }
-        #video-stream {
-            width: 100%;
-            height: auto;
-            max-height: 80vh;
-            background-color: #111;
-            border-radius: 0.5rem;
+        .prompt-image {
+            position: relative;
+            cursor: pointer;
+            border: 2px solid #4b5563; /* gray-600 */
+            border-radius: 0.25rem;
         }
-        /* Simple spinner */
+        .prompt-image img { display: block; width: 100%; height: auto; border-radius: 0.25rem; }
+        .prompt-image:hover { border-color: #3b82f6; }
+        .prompt-image .box-count {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            background-color: rgba(0,0,0,0.7);
+            color: white;
+            font-size: 0.75rem;
+            padding: 2px 4px;
+            border-radius: 0.25rem;
+        }
+        /* --- ADD THIS NEW STYLE --- */
+        .prompt-image .delete-image-btn {
+            position: absolute;
+            top: -8px;
+            left: -8px;
+            background-color: #ef4444; /* red-500 */
+            color: white;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px solid white;
+            cursor: pointer;
+            opacity: 0.8;
+            transition: all 0.2s;
+            line-height: 1; /* Ensure 'x' is centered */
+        }
+        .prompt-image:hover .delete-image-btn {
+            opacity: 1;
+            transform: scale(1.1);
+        }
+        /* --- END OF NEW STYLE --- */
+        /* Spinner */
         .spinner {
             border: 4px solid rgba(255, 255, 255, 0.3);
             border-top: 4px solid #3498db;
@@ -40,640 +86,680 @@
             height: 40px;
             animation: spin 1s linear infinite;
         }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        /* Utility */
+        .hidden { display: none; }
         .active-class {
             border-width: 2px;
-            border-color: #3498db; /* blue-500 */
-            background-color: #374151; /* gray-700 */
-        }
-        /* Styles for new capture gallery */
-        #capture-gallery {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-            gap: 0.5rem;
-            max-height: 200px;
-            overflow-y: auto;
-            background-color: #2d3748; /* gray-800 */
-            padding: 0.5rem;
-            border-radius: 0.5rem;
-        }
-        #capture-gallery img {
-            width: 100%;
-            height: auto;
-            border-radius: 0.25rem;
-            border: 2px solid transparent;
-            cursor: pointer;
-        }
-        #capture-gallery img.is-annotating {
-            border-color: #3498db; /* blue-500 */
-            box-shadow: 0 0 10px #3498db;
+            border-color: #3498db;
+            background-color: #374151;
         }
     </style>
 </head>
-<body class="bg-gray-900 text-gray-100 min-h-screen flex flex-col items-center p-4">
+<body class="bg-gray-900 text-gray-100 min-h-screen">
 
-    <div class="w-full max-w-5xl mx-auto">
-        <header class="flex justify-between items-center mb-4 p-4 bg-gray-800 rounded-lg shadow-lg">
-            <h1 class="text-2xl font-bold text-white">Multi-Shot YOLO Trainer</h1>
-            <button id="reset-button" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-all">
-                Start Over
-            </button>
-        </header>
+    <!-- Main Content -->
+    <div class="w-full max-w-6xl mx-auto p-4">
 
-        <main class="bg-gray-800 rounded-lg shadow-lg p-6">
-            
-            <div id="step-capture" class="step-container">
-                <h2 class="text-xl font-semibold mb-2">Step 1: Capture Reference Images</h2>
-                <p class="mb-4 text-gray-400">Capture one or more images. When finished, click "Start Annotating".</p>
-                <div class="mb-4 rounded-lg overflow-hidden shadow-inner">
-                    <img id="video-stream-capture" src="" alt="Live Capture Feed" class="w-full h-auto bg-gray-700">
-                </div>
-                <div class="flex gap-4">
-                    <button id="capture-button" class="flex-grow bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-all">
-                        &#128248; Capture Photo
-                    </button>
-                    <button id="go-to-annotate-button" class="flex-grow bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-all disabled:bg-gray-500" disabled>
-                        Start Annotating (0)
-                    </button>
-                </div>
-                <h3 class="font-semibold mt-4 mb-2">Captured Images:</h3>
-                <div id="capture-gallery">
-                    <p class="text-gray-500">No images captured yet.</p>
-                </div>
-            </div>
-
-            <div id="step-annotate" class="step-container hidden">
-                <h2 id="annotate-heading" class="text-xl font-semibold mb-2">Step 2: Annotate Objects (Image 1 of 1)</h2>
-                <p class="mb-4 text-gray-400">Add classes, then draw boxes. Use "Next/Prev" to switch images.</p>
-                
-                <div class="flex flex-col md:flex-row gap-4">
-                    <div id="annotation-container" class="border-2 border-dashed border-gray-600 rounded-lg overflow-hidden flex-grow">
-                        <img id="reference-image" src="" alt="Reference Image">
-                        <canvas id="annotation-canvas"></canvas>
-                    </div>
-                    <div class="flex-shrink-0 w-full md:w-64">
-                        <h3 class="font-semibold mb-2">Annotation Controls:</h3>
-                        <div class="flex gap-2 mb-2">
-                             <button id="prev-image-button" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg">&larr; Prev</button>
-                             <button id="next-image-button" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg">Next &rarr;</button>
-                        </div>
-                        <div class="mb-4">
-                            <button id="undo-button" class="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded-lg mb-2">Undo Last Box</button>
-                            <button id="clear-boxes-button" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg">Clear All Boxes</button>
-                        </div>
-                        <h3 class="font-semibold mb-2">Object Types:</h3>
-                        <button id="add-class-button" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg mb-3">
-                            + Add New Class
-                        </button>
-                        <ul id="legend-list" class="bg-gray-700 p-3 rounded-lg text-sm space-y-2">
-                            </ul>
-                    </div>
-                </div>
-
-                <button id="train-button" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-all mt-6 disabled:bg-gray-500">
-                    &#129504; Start Training
+        <!-- ===== PAGE 1: LIVE DETECTION ===== -->
+        <div id="page-detect" class="page active">
+            <header class="flex justify-between items-center mb-4 p-4 bg-gray-800 rounded-lg shadow-lg">
+                <h1 class="text-2xl font-bold text-white">Live Detection</h1>
+                <button id="goto-edit-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-all">
+                    Edit Prompts
                 </button>
-            </div>
-
-            <div id="step-training" class="step-container hidden text-center p-12">
-                <div class="spinner mx-auto mb-6"></div>
-                <h2 class="text-2xl font-semibold mb-2">Step 3: Training in Progress...</h2>
-                <p class="text-gray-400">The model is being prompted with your annotations.</p>
-                <p class="text-gray-500 text-sm mt-2">This may take a minute.</p>
-            </div>
-
-            <div id="step-detect" class="step-container hidden">
-                <h2 class="text-xl font-semibold mb-2">Step 4: Live Detection</h2>
-                <p class="mb-4 text-gray-400">The server is now running your custom model.</p>
+            </header>
+            <main class="bg-gray-800 rounded-lg shadow-lg p-6">
                 <div class="mb-4 rounded-lg overflow-hidden shadow-inner">
                     <img id="video-stream-detect" src="" alt="Live Detection Feed" class="w-full h-auto bg-gray-700">
                 </div>
-                <p class="text-center text-gray-500">To re-train, click "Start Over".</p>
+            </main>
+        </div>
+
+        <!-- ===== PAGE 2: EDIT PROMPTS ===== -->
+        <div id="page-edit" class="page">
+            <header class="flex justify-between items-center mb-4 p-4 bg-gray-800 rounded-lg shadow-lg">
+                <h1 class="text-2xl font-bold text-white">Edit Prompt Library</h1>
+                <div class="flex gap-4">
+                    <button id="reset-all-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-all">
+                        Reset All
+                    </button>
+                    <button id="retrain-btn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-all flex items-center gap-2">
+                        <span id="retrain-btn-text">Re-Train Model</span>
+                        <div id="retrain-spinner" class="spinner w-5 h-5 border-2 hidden"></div>
+                    </button>
+                    <button id="goto-detect-btn" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition-all">
+                        Back to Live
+                    </button>
+                </div>
+            </header>
+            <main class="bg-gray-800 rounded-lg shadow-lg p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Column 1: Object List -->
+                <div class="md:col-span-1 bg-gray-700 p-4 rounded-lg">
+                    <h2 class="text-xl font-semibold mb-3">Objects</h2>
+                    <ul id="object-list" class="space-y-2 mb-3">
+                        <!-- JS will populate this -->
+                    </ul>
+                    <button id="add-new-object-btn" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg">
+                        + Add New Object
+                    </button>
+                </div>
+                <!-- Column 2 & 3: Object Details -->
+                <div id="object-details-panel" class="md:col-span-2 bg-gray-700 p-4 rounded-lg">
+                    <!-- Placeholder -->
+                    <div id="object-placeholder" class="text-center text-gray-400 py-16">
+                        <p>Select an object to edit, or add a new one.</p>
+                    </div>
+                    <!-- Editor -->
+                    <div id="object-editor" class="hidden">
+                        <div class="flex justify-between items-center mb-4">
+                            <div>
+                                <label for="object-name-input" class="block text-sm font-medium text-gray-400">Object Name</label>
+                                <input type="text" id="object-name-input" class="bg-gray-800 border border-gray-600 rounded-lg p-2 text-white text-lg">
+                            </div>
+                            <button id="delete-object-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-3 rounded-lg">Delete</button>
+                        </div>
+                        <h3 class="text-lg font-semibold mb-2">Prompt Images</h3>
+                        <div id="prompt-image-gallery" class="mb-4 bg-gray-800 p-3 rounded-lg min-h-[120px]">
+                            <!-- JS will populate this -->
+                        </div>
+                        <button id="add-new-prompt-btn" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg">
+                            + Add New Prompt Image
+                        </button>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- ===== MODAL: ADD/EDIT ANNOTATION ===== -->
+    <div id="annotate-modal" class="fixed inset-0 bg-black bg-opacity-75 items-center justify-center p-8">
+        <div class="bg-gray-800 rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+            <!-- Modal Header -->
+            <h2 id="modal-title" class="text-xl font-semibold p-4 border-b border-gray-700">Add New Prompt</h2>
+            
+            <!-- Modal Body -->
+            <div class="p-6 flex-grow overflow-y-auto grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Left: Image/Video -->
+                <div class="md:col-span-2">
+                    <!-- Capture View -->
+                    <div id="modal-capture-view">
+                        <img id="modal-video-feed" src="" alt="Live Capture Feed" class="w-full h-auto bg-gray-700 rounded-lg">
+                        <button id="modal-capture-btn" class="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg text-lg">
+                            &#128248; Capture Photo
+                        </button>
+                    </div>
+                    <!-- Annotate View -->
+                    <div id="modal-annotate-view" class="hidden">
+                        <div id="modal-annotation-container" class="border-2 border-dashed border-gray-600 rounded-lg overflow-hidden">
+                            <img id="modal-reference-image" src="" alt="Reference Image">
+                            <canvas id="modal-canvas"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <!-- Right: Controls -->
+                <div class="md:col-span-1">
+                    <h3 class="font-semibold mb-2">Object Type:</h3>
+                    <p class="text-gray-400 text-sm mb-3">Select the object you are drawing.</p>
+                    <ul id="modal-legend-list" class="bg-gray-700 p-3 rounded-lg text-sm space-y-2 max-h-48 overflow-y-auto">
+                        <!-- JS will populate this -->
+                    </ul>
+                    <div id="modal-annotate-controls" class="hidden mt-4">
+                        <h3 class="font-semibold mb-2 mt-4">Controls:</h3>
+                        <button id="modal-undo-btn" class="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded-lg mb-2">Undo Last Box</button>
+                        <button id="modal-clear-btn" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg">Clear All Boxes</button>
+                    </div>
+                </div>
             </div>
 
-        </main>
+            <!-- Modal Footer -->
+            <div class="p-4 bg-gray-700 border-t border-gray-600 flex justify-end gap-4">
+                <button id="modal-cancel-btn" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg">Cancel</button>
+                <button id="modal-save-btn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg disabled:bg-gray-500" disabled>Save Prompt</button>
+            </div>
+        </div>
     </div>
 
     <script>
-        // --- DOM Elements ---
-        const steps = {
-            capture: document.getElementById('step-capture'),
-            annotate: document.getElementById('step-annotate'),
-            training: document.getElementById('step-training'),
-            detect: document.getElementById('step-detect')
+    document.addEventListener('DOMContentLoaded', () => {
+        // --- Page Elements ---
+        const pages = {
+            detect: document.getElementById('page-detect'),
+            edit: document.getElementById('page-edit'),
         };
-        const videoStreamCapture = document.getElementById('video-stream-capture');
         const videoStreamDetect = document.getElementById('video-stream-detect');
-        
-        const captureButton = document.getElementById('capture-button');
-        const goToAnnotateButton = document.getElementById('go-to-annotate-button');
-        const trainButton = document.getElementById('train-button');
-        const resetButton = document.getElementById('reset-button');
-        const undoButton = document.getElementById('undo-button');
-        const clearBoxesButton = document.getElementById('clear-boxes-button');
-        const addClassButton = document.getElementById('add-class-button');
-        const prevImageButton = document.getElementById('prev-image-button');
-        const nextImageButton = document.getElementById('next-image-button');
-        
-        const refImage = document.getElementById('reference-image');
-        const canvas = document.getElementById('annotation-canvas');
-        const ctx = canvas.getContext('2d');
-        const legendList = document.getElementById('legend-list');
-        const captureGallery = document.getElementById('capture-gallery');
-        const annotateHeading = document.getElementById('annotate-heading');
+        const gotoEditBtn = document.getElementById('goto-edit-btn');
+        const gotoDetectBtn = document.getElementById('goto-detect-btn');
 
-        // --- NEW App State ---
-        let appState = 'CAPTURE';
-        let classTypes = []; // { id, name, color }
-        let activeClassId = 0;
-        let drawnBoxes = []; // Boxes for the *current* image
-        
-        let capturedImages = []; // List of image filenames (e.g., "reference_0.jpg")
-        let allAnnotations = {}; // Maps filename -> array of boxes
-        let currentAnnotationImageIndex = 0;
+        // --- Edit Page Elements ---
+        const objectList = document.getElementById('object-list');
+        const addNewObjectBtn = document.getElementById('add-new-object-btn');
+        const objectDetailsPanel = document.getElementById('object-details-panel');
+        const objectPlaceholder = document.getElementById('object-placeholder');
+        const objectEditor = document.getElementById('object-editor');
+        const objectNameInput = document.getElementById('object-name-input');
+        const deleteObjectBtn = document.getElementById('delete-object-btn');
+        const promptImageGallery = document.getElementById('prompt-image-gallery');
+        const addNewPromptBtn = document.getElementById('add-new-prompt-btn');
+        const retrainBtn = document.getElementById('retrain-btn');
+        const retrainBtnText = document.getElementById('retrain-btn-text');
+        const retrainSpinner = document.getElementById('retrain-spinner');
+        const resetAllBtn = document.getElementById('reset-all-btn');
 
-        // --- Annotation State ---
-        let isDrawing = false;
-        let startPos = { x: 0, y: 0 };
-        let mousePos = { x: 0, y: 0 }; 
-        let imageOriginalSize = { w: 0, h: 0 };
-        let imageRenderSize = { w: 0, h: 0 };
+        // --- Modal Elements ---
+        const modal = document.getElementById('annotate-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalCaptureView = document.getElementById('modal-capture-view');
+        const modalVideoFeed = document.getElementById('modal-video-feed');
+        const modalCaptureBtn = document.getElementById('modal-capture-btn');
+        const modalAnnotateView = document.getElementById('modal-annotate-view');
+        const modalRefImage = document.getElementById('modal-reference-image');
+        const modalCanvas = document.getElementById('modal-canvas');
+        const modalCtx = modalCanvas.getContext('2d');
+        const modalLegendList = document.getElementById('modal-legend-list');
+        const modalAnnotateControls = document.getElementById('modal-annotate-controls');
+        const modalUndoBtn = document.getElementById('modal-undo-btn');
+        const modalClearBtn = document.getElementById('modal-clear-btn');
+        const modalCancelBtn = document.getElementById('modal-cancel-btn');
+        const modalSaveBtn = document.getElementById('modal-save-btn');
 
-        const colors = [
-            '#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6',
-            '#1abc9c', '#e67e22', '#34495e', '#ecf0f1', '#95a5a6'
-        ];
+        // --- Global State ---
+        let promptLibrary = { class_names: {}, annotations: {} };
+        let activeEditorClassId = null; // The class ID being edited on the Edit Page
+        let colors = ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6', '#1abc9c', '#e67e22', '#34495e'];
 
-        // --- Utility Functions ---
+        // --- Modal Annotation State ---
+        let modalState = {
+            filename: null,
+            originalSize: { w: 0, h: 0 },
+            renderSize: { w: 0, h: 0 },
+            boxes: [], // Boxes for the image currently in the modal
+            activeClassId: null, // The class ID being *drawn*
+            isDrawing: false,
+            startPos: { x: 0, y: 0 },
+            mousePos: { x: 0, y: 0 }
+        };
 
-        function showStep(stepName) {
-            appState = stepName.toUpperCase();
-            Object.keys(steps).forEach(key => {
-                steps[key].classList.toggle('hidden', key !== stepName);
+        // ===== 1. INITIALIZATION & PAGE NAVIGATION =====
+
+        async function init() {
+            try {
+                const response = await fetch('/api/prompt_library');
+                promptLibrary = await response.json();
+                console.log('Library loaded:', promptLibrary);
+            } catch (e) {
+                console.error('Could not load prompt library', e);
+            }
+            showPage('detect');
+        }
+
+        function showPage(pageName) {
+            Object.keys(pages).forEach(key => {
+                pages[key].classList.toggle('active', key === pageName);
             });
-
+            
             const timestamp = new Date().getTime();
-            if (stepName === 'capture') {
-                videoStreamCapture.src = `/video/capture_feed?t=${timestamp}`;
-                videoStreamDetect.src = '';
-            } else if (stepName === 'annotate') {
-                videoStreamCapture.src = `/video/capture_feed?t=${timestamp}`; // Keep feed running
-                videoStreamDetect.src = '';
-                // Load the first image for annotation
-                loadAnnotationImage(0);
-            } else if (stepName === 'detect') {
+            if (pageName === 'detect') {
                 videoStreamDetect.src = `/video/detection_feed?t=${timestamp}`;
-                videoStreamCapture.src = ''; 
-            } else {
-                videoStreamCapture.src = '';
+                // Stop other streams
+                modalVideoFeed.src = '';
+            } else if (pageName === 'edit') {
+                renderEditorUI();
+                // Stop other streams
                 videoStreamDetect.src = '';
             }
-            
-            updateTrainButton();
         }
 
-        async function checkServerStatus() {
-            try {
-                const response = await fetch('/api/status');
-                if (!response.ok) throw new Error('Network response was not ok');
-                const data = await response.json();
-                
-                // Update state from server
-                capturedImages = data.images || [];
-                updateCaptureGallery();
-                
-                if (data.status === 'CAPTURE') {
-                    showStep('capture');
-                } else if (data.status === 'ANNOTATE') {
-                    // If we reload on annotate step, go to capture
-                    // A more complex app would save/load annotations
-                    showStep('capture');
-                } else if (data.status === 'TRAINING') {
-                    showStep('training');
-                } else if (data.status === 'DETECT') {
-                    showStep('detect');
-                }
-            } catch (error) {
-                console.error('Error checking server status:', error);
-            }
-        }
-        
-        function getScaledMousePos(event) {
-            const rect = canvas.getBoundingClientRect();
-            const scaleX = imageOriginalSize.w / rect.width;
-            const scaleY = imageOriginalSize.h / rect.height;
+        gotoEditBtn.addEventListener('click', () => showPage('edit'));
+        gotoDetectBtn.addEventListener('click', () => showPage('detect'));
 
-            return {
-                x: (event.clientX - rect.left) * scaleX,
-                y: (event.clientY - rect.top) * scaleY
-            };
-        }
-        
-        // --- NEW: Gallery UI ---
-        function updateCaptureGallery() {
-            if (capturedImages.length === 0) {
-                captureGallery.innerHTML = '<p class="text-gray-500">No images captured yet.</p>';
-                goToAnnotateButton.disabled = true;
-                goToAnnotateButton.innerText = 'Start Annotating (0)';
+        // ===== 2. EDIT PAGE LOGIC =====
+
+        function renderEditorUI() {
+            objectList.innerHTML = '';
+            objectEditor.classList.add('hidden');
+            objectPlaceholder.classList.remove('hidden');
+            activeEditorClassId = null;
+
+            const sortedClassIds = Object.keys(promptLibrary.class_names).sort((a,b) => a - b);
+
+            if (sortedClassIds.length === 0) {
+                objectList.innerHTML = '<li class="text-gray-400">No objects added.</li>';
                 return;
             }
-            
-            captureGallery.innerHTML = ''; // Clear
-            capturedImages.forEach((filename, index) => {
-                const img = document.createElement('img');
-                img.src = `/generated/${filename}?t=${new Date().getTime()}`;
-                img.alt = `Reference ${index}`;
-                img.onclick = () => {
-                    // Allow clicking gallery to jump to image in annotate step
-                    if (appState === 'ANNOTATE') {
-                        loadAnnotationImage(index);
-                    }
-                };
-                // Highlight image being annotated
-                if (appState === 'ANNOTATE' && index === currentAnnotationImageIndex) {
-                    img.classList.add('is-annotating');
-                }
-                captureGallery.appendChild(img);
-            });
-            
-            goToAnnotateButton.disabled = false;
-            goToAnnotateButton.innerText = `Start Annotating (${capturedImages.length})`;
-        }
 
-        // --- NEW: Annotation Image Loading ---
-        function loadAnnotationImage(index) {
-            if (index < 0 || index >= capturedImages.length) return;
-            
-            // Save boxes for the *previous* image
-            saveCurrentAnnotations();
-            
-            currentAnnotationImageIndex = index;
-            const filename = capturedImages[index];
-            
-            console.log(`Loading image ${index}: ${filename}`);
-            
-            // Load new image
-            refImage.src = `/generated/${filename}?t=${new Date().getTime()}`;
-            refImage.onload = () => {
-                // Get image size *before* initCanvas
-                imageOriginalSize = { w: refImage.naturalWidth, h: refImage.naturalHeight };
-                console.log(`Image ${filename} loaded with size ${imageOriginalSize.w}x${imageOriginalSize.h}`);
-                initCanvas(); // This will also call drawAnnotations
-            };
-
-            // Load saved boxes for this image
-            drawnBoxes = allAnnotations[filename] || [];
-            
-            // Update UI
-            annotateHeading.innerText = `Step 2: Annotate Objects (Image ${index + 1} of ${capturedImages.length})`;
-            prevImageButton.disabled = (index === 0);
-            nextImageButton.disabled = (index === capturedImages.length - 1);
-            updateCaptureGallery(); // Update highlighted thumbnail
-            updateTrainButton();
-        }
-        
-        // --- NEW: Save annotations for current image ---
-        function saveCurrentAnnotations() {
-            if (capturedImages.length === 0) return;
-            const currentFilename = capturedImages[currentAnnotationImageIndex];
-            if (currentFilename) {
-                allAnnotations[currentFilename] = drawnBoxes;
-                console.log(`Saved ${drawnBoxes.length} boxes for ${currentFilename}`);
-            }
-        }
-
-        // --- Canvas Drawing Functions ---
-
-        function initCanvas() {
-            if (!refImage.src || !refImage.complete || imageOriginalSize.w === 0) {
-                console.warn("Reference image not ready for canvas init.");
-                return;
-            }
-            
-            const rect = refImage.getBoundingClientRect();
-            imageRenderSize = { w: rect.width, h: rect.height };
-            
-            canvas.style.width = `${imageRenderSize.w}px`;
-            canvas.style.height = `${imageRenderSize.h}px`;
-            canvas.width = imageOriginalSize.w;
-            canvas.height = imageOriginalSize.h;
-            
-            console.log(`Canvas Initialized: Original(${imageOriginalSize.w}x${imageOriginalSize.h}), Render(${imageRenderSize.w}x${imageRenderSize.h})`);
-            drawAnnotations();
-        }
-
-        function drawAnnotations() {
-            if (!ctx) return;
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            const activeColor = classTypes.find(c => c.id === activeClassId)?.color || '#ffffff';
-
-            drawnBoxes.forEach(box => {
-                ctx.strokeStyle = box.color;
-                ctx.lineWidth = 3;
-                ctx.strokeRect(box.bbox[0], box.bbox[1], box.bbox[2] - box.bbox[0], box.bbox[3] - box.bbox[1]);
-                
-                ctx.fillStyle = box.color;
-                ctx.font = '24px sans-serif';
-                ctx.fillText(box.class_name, box.bbox[0] + 5, box.bbox[1] + 24);
-            });
-
-            if (isDrawing) {
-                ctx.strokeStyle = activeColor;
-                ctx.lineWidth = 1;
-                ctx.setLineDash([5, 5]);
-                ctx.strokeRect(startPos.x, startPos.y, mousePos.x - startPos.x, mousePos.y - startPos.y);
-                ctx.setLineDash([]);
-            }
-            
-            ctx.strokeStyle = activeColor;
-            ctx.lineWidth = 0.5;
-            ctx.beginPath();
-            ctx.moveTo(mousePos.x, 0);
-            ctx.lineTo(mousePos.x, canvas.height);
-            ctx.moveTo(0, mousePos.y);
-            ctx.lineTo(canvas.width, mousePos.y);
-            ctx.stroke();
-        }
-
-        function updateLegend() {
-            legendList.innerHTML = '';
-            
-            if (classTypes.length === 0) {
-                 legendList.innerHTML = '<li class="text-gray-400">No object types added yet.</li>';
-            }
-
-            classTypes.forEach(cls => {
+            sortedClassIds.forEach(id => {
+                const name = promptLibrary.class_names[id];
                 const li = document.createElement('li');
-                li.className = `flex items-center p-2 rounded-lg cursor-pointer bg-gray-800 hover:bg-gray-700 ${cls.id === activeClassId ? 'active-class' : ''}`;
+                li.className = 'p-3 rounded-lg bg-gray-800 hover:bg-gray-600';
+                li.textContent = `${id}: ${name}`;
+                li.dataset.id = id;
                 li.onclick = () => {
-                    activeClassId = cls.id;
-                    updateLegend();
-                    drawAnnotations();
+                    renderObjectDetails(id);
+                    // Highlight active
+                    document.querySelectorAll('#object-list li').forEach(el => el.classList.remove('active'));
+                    li.classList.add('active');
                 };
+                objectList.appendChild(li);
+            });
+        }
 
-                li.innerHTML = `
-                    <span class="w-4 h-4 rounded-full mr-2 flex-shrink-0" style="background-color: ${cls.color}"></span>
-                    <input 
-                        type="text" 
-                        value="${cls.name}" 
-                        data-id="${cls.id}"
-                        class="bg-transparent w-full focus:bg-gray-600 rounded px-1"
-                        placeholder="Object Name"
-                    >
-                `;
+        function renderObjectDetails(classId) {
+            activeEditorClassId = classId;
+            const name = promptLibrary.class_names[classId];
+
+            objectNameInput.value = name;
+            objectEditor.classList.remove('hidden');
+            objectPlaceholder.classList.add('hidden');
+
+            renderPromptGallery(classId);
+        }
+
+        function renderPromptGallery(classId) {
+            promptImageGallery.innerHTML = '';
+            let imageFound = false;
+
+            // Find all images that have an annotation for this classId
+            for (const filename in promptLibrary.annotations) {
+                const boxesForThisClass = promptLibrary.annotations[filename].filter(b => b.class_id == classId);
                 
-                const input = li.querySelector('input');
-                input.onclick = (e) => e.stopPropagation();
-                
-                input.onchange = (e) => {
-                    const id = parseInt(e.target.dataset.id);
-                    const newName = e.target.value;
-                    const classToUpdate = classTypes.find(c => c.id === id);
-                    if (classToUpdate) classToUpdate.name = newName;
+                if (boxesForThisClass.length > 0) {
+                    imageFound = true;
+                    const div = document.createElement('div');
+                    div.className = 'prompt-image';
+                    div.innerHTML = `
+                        <img src="/generated/${filename}" alt="${filename}">
+                        <span class="box-count">${boxesForThisClass.length} box(es)</span>
+                        <!-- --- ADD THIS DELETE BUTTON --- -->
+                        <div class="delete-image-btn" title="Remove annotations for this object">&times;</div>
+                    `;
                     
-                    // Update all boxes in all annotations
-                    Object.values(allAnnotations).flat().forEach(box => {
-                        if (box.class_id === id) box.class_name = newName;
-                    });
-                    // And current drawnBoxes
-                    drawnBoxes.forEach(box => {
-                        if (box.class_id === id) box.class_name = newName;
-                    });
-                    drawAnnotations();
-                };
-                legendList.appendChild(li);
-            });
-        }
-        
-        function updateTrainButton() {
-            // Must have at least one annotation, somewhere
-            const totalAnnotations = Object.values(allAnnotations).flat().length + drawnBoxes.length;
-            trainButton.disabled = totalAnnotations === 0;
-        }
+                    // --- MODIFY THIS ---
+                    // Main click on image edits annotations
+                    div.querySelector('img').onclick = () => openAnnotationModal('edit', filename, classId);
+                    
+                    // --- ADD THIS ---
+                    // Button click deletes annotations
+                    const deleteBtn = div.querySelector('.delete-image-btn');
+                    deleteBtn.onclick = (e) => {
+                        e.stopPropagation(); // Don't trigger modal
+                        handleDeletePromptImage(filename, classId);
+                    };
 
-        // --- Canvas Event Handlers ---
-        canvas.addEventListener('mousedown', (e) => {
-            if (e.button !== 0) return;
-            if (classTypes.length === 0) {
-                window.alert("Please add an object type first!");
-                return;
+                    promptImageGallery.appendChild(div);
+                }
             }
-            isDrawing = true;
-            startPos = getScaledMousePos(e);
-            mousePos = startPos;
-            drawAnnotations();
-        });
 
-        canvas.addEventListener('mousemove', (e) => {
-            mousePos = getScaledMousePos(e);
-            drawAnnotations();
-        });
+            if (!imageFound) {
+                promptImageGallery.innerHTML = '<p class="text-gray-400 text-sm">No prompt images yet. Click "Add New Prompt Image" to add one.</p>';
+            }
+        }
 
-        canvas.addEventListener('mouseup', (e) => {
-            if (!isDrawing) return;
-            isDrawing = false;
-            const endPos = getScaledMousePos(e);
-            const box = [
-                Math.min(startPos.x, endPos.x),
-                Math.min(startPos.y, endPos.y),
-                Math.max(startPos.x, endPos.x),
-                Math.max(startPos.y, endPos.y)
-            ];
-
-            if (box[2] - box[0] < 5 || box[3] - box[1] < 5) {
-                drawAnnotations();
+        // --- ADD THIS NEW FUNCTION ---
+        function handleDeletePromptImage(filename, classId) {
+            const objectName = promptLibrary.class_names[classId];
+            if (!window.confirm(`Are you sure you want to remove all "${objectName}" (ID: ${classId}) annotations from this image?\n\n(File: ${filename})`)) {
                 return;
             }
 
-            const activeClass = classTypes.find(c => c.id === activeClassId);
-            if (!activeClass) return;
+            if (!promptLibrary.annotations[filename]) return;
 
-            drawnBoxes.push({
-                bbox: box.map(coord => Math.round(coord)),
-                class_id: activeClass.id,
-                class_name: activeClass.name,
-                color: activeClass.color
-            });
+            // Filter out boxes matching the current classId
+            promptLibrary.annotations[filename] = promptLibrary.annotations[filename].filter(
+                box => box.class_id != classId
+            );
 
-            drawAnnotations();
-            updateTrainButton(); // Check if we can enable train
-        });
-        
-        canvas.addEventListener('mouseleave', () => {
-            if (isDrawing) {
-                canvas.dispatchEvent(new MouseEvent('mouseup'));
+            // If no boxes are left for this image, remove the image key
+            if (promptLibrary.annotations[filename].length === 0) {
+                delete promptLibrary.annotations[filename];
+                console.log(`Removed all annotations for ${filename} and deleted key.`);
+            } else {
+                console.log(`Removed ${objectName} annotations from ${filename}.`);
             }
-            mousePos = {x: -1, y: -1};
-            drawAnnotations();
+
+            // Re-render the gallery to show the change
+            renderPromptGallery(classId);
+        }
+        // --- END OF NEW FUNCTION ---
+
+        addNewObjectBtn.addEventListener('click', () => {
+            const newName = window.prompt("Enter new object name:");
+            if (!newName || !newName.trim()) return;
+
+            const existingIds = Object.keys(promptLibrary.class_names).map(Number);
+            const newId = existingIds.length > 0 ? Math.max(...existingIds) + 1 : 0;
+            
+            promptLibrary.class_names[newId] = newName.trim();
+            renderEditorUI();
+            renderObjectDetails(newId);
+            // Auto-save this change? Not yet. Wait for "Re-Train".
         });
         
-        window.addEventListener('resize', initCanvas);
+        objectNameInput.addEventListener('change', (e) => {
+            if (activeEditorClassId !== null) {
+                promptLibrary.class_names[activeEditorClassId] = e.target.value;
+                renderEditorUI(); // Re-render list to show new name
+                // Re-highlight the active one
+                document.querySelector(`#object-list li[data-id='${activeEditorClassId}']`).classList.add('active');
+            }
+        });
 
-        // --- API Call Functions ---
+        deleteObjectBtn.addEventListener('click', () => {
+            if (activeEditorClassId === null) return;
+            if (!window.confirm(`Are you sure you want to delete "${promptLibrary.class_names[activeEditorClassId]}"?\nThis will remove the object and all its annotations from all images.`)) {
+                return;
+            }
+            
+            const idToDelete = activeEditorClassId;
+            
+            // 1. Delete class name
+            delete promptLibrary.class_names[idToDelete];
+            
+            // 2. Delete all annotations with this class_id
+            for (const filename in promptLibrary.annotations) {
+                promptLibrary.annotations[filename] = promptLibrary.annotations[filename].filter(
+                    b => b.class_id != idToDelete
+                );
+                // Optional: clean up empty image entries
+                if (promptLibrary.annotations[filename].length === 0) {
+                    delete promptLibrary.annotations[filename];
+                }
+            }
+            
+            // 3. Reset UI
+            renderEditorUI();
+        });
 
-        async function handleCaptureClick() {
-            console.log("Capturing image...");
+        addNewPromptBtn.addEventListener('click', () => {
+            if (activeEditorClassId === null) {
+                window.alert('Please select an object first.');
+                return;
+            }
+            openAnnotationModal('new', null, activeEditorClassId);
+        });
+        
+        resetAllBtn.addEventListener('click', async () => {
+            if (!window.confirm("ARE YOU SURE?\nThis will delete all objects, all images, and the trained model.")) return;
+            
             try {
-                const response = await fetch('/api/capture', { method: 'POST' });
-                if (!response.ok) throw new Error('Failed to capture');
-                
-                const data = await response.json();
-                console.log('Capture response:', data);
-                
-                // Update our state with the full list
-                capturedImages = data.all_images;
-                updateCaptureGallery();
-            } catch (error) {
-                console.error('Capture error:', error);
-                window.alert('Failed to capture image. Check server logs.');
+                const response = await fetch('/api/reset', { method: 'POST' });
+                promptLibrary = await response.json();
+                renderEditorUI();
+            } catch (e) {
+                console.error('Failed to reset', e);
             }
-        }
-        
-        async function handleTrainClick() {
-            // Save final annotations
-            saveCurrentAnnotations();
-            
-            // Check for empty class names
-            if (classTypes.some(c => !c.name.trim())) {
-                window.alert("Please make sure all object types have a name.");
-                return;
-            }
-            
-            // Check if any annotations exist
-            const totalAnnotations = Object.values(allAnnotations).flat().length;
-            if (totalAnnotations === 0) {
-                 window.alert("Please draw at least one bounding box.");
-                return;
-            }
-            
-            console.log("Starting training with all annotations:", allAnnotations);
-            console.log("With class types:", classTypes);
+        });
 
-            showStep('training');
-
-            // Prep data for server
-            const classNames = classTypes.map(c => c.name.trim());
-            
-            // NEW: Clean the 'allAnnotations' object for sending
-            // We only need bbox and class_id
-            const annotationsForServer = {};
-            for (const filename in allAnnotations) {
-                annotationsForServer[filename] = allAnnotations[filename].map(b => ({
-                    bbox: b.bbox,
-                    class_id: b.class_id
-                }));
-            }
+        retrainBtn.addEventListener('click', async () => {
+            retrainBtn.disabled = true;
+            retrainBtnText.textContent = 'Training...';
+            retrainSpinner.classList.remove('hidden');
 
             try {
                 const response = await fetch('/api/train', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        annotations: annotationsForServer, // Send the new object
-                        class_names: classNames
-                    })
+                    body: JSON.stringify(promptLibrary)
                 });
                 
-                if (!response.ok) {
-                    const errData = await response.json();
-                    throw new Error(errData.error || 'Training request failed');
-                }
-
                 const data = await response.json();
-                console.log('Training response:', data);
-                
-                if (data.status === 'DETECT') {
-                    showStep('detect');
-                } else {
-                    window.alert('Training complete but status is not DETECT.');
-                    showStep('annotate');
-                }
-            } catch (error)
-            {
-                console.error('Training error:', error);
-                window.alert(`Training failed: ${error.message}`);
-                showStep('annotate');
+                if (!response.ok) throw new Error(data.error || 'Training failed');
+
+                window.alert('Training complete! Returning to live detection.');
+                showPage('detect');
+
+            } catch (e) {
+                console.error('Training failed', e);
+                window.alert(`Training Failed: ${e.message}`);
+            } finally {
+                retrainBtn.disabled = false;
+                retrainBtnText.textContent = 'Re-Train Model';
+                retrainSpinner.classList.add('hidden');
             }
+        });
+
+        // ===== 3. ANNOTATION MODAL LOGIC =====
+
+        function openAnnotationModal(mode, filename, classIdToFocus) {
+            resetModalState();
+            modalState.activeClassId = classIdToFocus;
+            
+            // Populate modal legend
+            modalLegendList.innerHTML = '';
+            for (const id in promptLibrary.class_names) {
+                const name = promptLibrary.class_names[id];
+                const li = document.createElement('li');
+                li.className = `flex items-center p-2 rounded-lg cursor-pointer bg-gray-800 hover:bg-gray-600 ${id == classIdToFocus ? 'active-class' : ''}`;
+                li.innerHTML = `
+                    <span class="w-4 h-4 rounded-full mr-2" style="background-color: ${colors[id % colors.length]}"></span>
+                    <span>${id}: ${name}</span>
+                `;
+                li.onclick = () => {
+                    modalState.activeClassId = id;
+                    // Re-render legend to show active
+                    document.querySelectorAll('#modal-legend-list li').forEach(el => el.classList.remove('active-class'));
+                    li.classList.add('active-class');
+                };
+                modalLegendList.appendChild(li);
+            }
+            
+            if (mode === 'new') {
+                modalTitle.textContent = 'Add New Prompt Image';
+                modalCaptureView.classList.remove('hidden');
+                modalAnnotateView.classList.add('hidden');
+                modalAnnotateControls.classList.add('hidden');
+                modalSaveBtn.disabled = true;
+                // Start capture feed
+                modalVideoFeed.src = `/video/capture_feed?t=${new Date().getTime()}`;
+
+            } else if (mode === 'edit') {
+                modalTitle.textContent = `Edit Prompt: ${filename}`;
+                modalState.filename = filename;
+                modalState.boxes = JSON.parse(JSON.stringify(promptLibrary.annotations[filename] || [])); // Deep copy
+                
+                modalCaptureView.classList.add('hidden');
+                modalAnnotateView.classList.remove('hidden');
+                modalAnnotateControls.classList.remove('hidden');
+                modalSaveBtn.disabled = false;
+                modalVideoFeed.src = ''; // Stop feed
+
+                modalRefImage.src = `/generated/${filename}?t=${new Date().getTime()}`;
+                modalRefImage.onload = () => {
+                    modalState.originalSize = { w: modalRefImage.naturalWidth, h: modalRefImage.naturalHeight };
+                    initModalCanvas();
+                };
+            }
+            
+            modal.classList.add('active');
         }
 
-        async function handleResetClick() {
-            console.log("Resetting application...");
+        function resetModalState() {
+            modalState = {
+                filename: null,
+                originalSize: { w: 0, h: 0 },
+                renderSize: { w: 0, h: 0 },
+                boxes: [],
+                activeClassId: null,
+                isDrawing: false,
+                startPos: { x: 0, y: 0 },
+                mousePos: { x: 0, y: 0 }
+            };
+            modalCtx.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
+            modalRefImage.src = '';
+            modalVideoFeed.src = '';
+        }
+
+        modalCancelBtn.addEventListener('click', () => {
+            modal.classList.remove('active');
+            resetModalState();
+        });
+
+        modalCaptureBtn.addEventListener('click', async () => {
             try {
-                await fetch('/api/reset', { method: 'POST' });
+                const response = await fetch('/api/capture', { method: 'POST' });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error);
+
+                modalState.filename = data.image_name;
+                modalState.originalSize = { w: data.image_width, h: data.image_height };
                 
-                // Reset local state
-                capturedImages = [];
-                allAnnotations = {};
-                drawnBoxes = [];
-                classTypes = [];
-                activeClassId = 0;
-                currentAnnotationImageIndex = 0;
-                
-                updateLegend();
-                updateCaptureGallery();
-                
-                showStep('capture');
-            } catch (error) {
-                console.error('Reset error:', error);
+                // Switch to annotate view
+                modalCaptureView.classList.add('hidden');
+                modalAnnotateView.classList.remove('hidden');
+                modalAnnotateControls.classList.remove('hidden');
+                modalSaveBtn.disabled = false;
+                modalVideoFeed.src = ''; // Stop capture
+
+                modalRefImage.src = data.image_url;
+                modalRefImage.onload = () => initModalCanvas();
+
+            } catch (e) {
+                console.error('Capture failed', e);
+                window.alert(`Capture failed: ${e.message}`);
             }
+        });
+
+        modalSaveBtn.addEventListener('click', () => {
+            if (!modalState.filename) return;
+
+            // Save the modal's boxes to the global library
+            promptLibrary.annotations[modalState.filename] = modalState.boxes;
+            
+            console.log('Saved to library:', promptLibrary);
+
+            // Hide modal and re-render the gallery
+            modal.classList.remove('active');
+            renderPromptGallery(activeEditorClassId);
+            resetModalState();
+        });
+
+        // --- Modal Canvas Logic (copied from original) ---
+
+        function initModalCanvas() {
+            if (!modalRefImage.src || !modalRefImage.complete || modalState.originalSize.w === 0) return;
+            
+            const rect = modalRefImage.getBoundingClientRect();
+            modalState.renderSize = { w: rect.width, h: rect.height };
+            
+            modalCanvas.style.width = `${modalState.renderSize.w}px`;
+            modalCanvas.style.height = `${modalState.renderSize.h}px`;
+            modalCanvas.width = modalState.originalSize.w;
+            modalCanvas.height = modalState.originalSize.h;
+            
+            drawModalAnnotations();
         }
 
-        // --- Button Event Listeners ---
-        captureButton.addEventListener('click', handleCaptureClick);
-        trainButton.addEventListener('click', handleTrainClick);
-        resetButton.addEventListener('click', handleResetClick);
-        
-        goToAnnotateButton.addEventListener('click', () => {
-            if (capturedImages.length > 0) {
-                showStep('annotate');
-            }
-        });
-        
-        prevImageButton.addEventListener('click', () => {
-            loadAnnotationImage(currentAnnotationImageIndex - 1);
-        });
-        
-        nextImageButton.addEventListener('click', () => {
-            loadAnnotationImage(currentAnnotationImageIndex + 1);
-        });
-
-        addClassButton.addEventListener('click', () => {
-            const newId = classTypes.length > 0 ? Math.max(...classTypes.map(c => c.id)) + 1 : 0;
-            const newName = `Object ${newId}`;
+        function drawModalAnnotations() {
+            modalCtx.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
+            if (modalState.activeClassId === null) return;
             
-            classTypes.push({
-                id: newId,
-                name: newName,
-                color: colors[newId % colors.length]
+            const activeColor = colors[modalState.activeClassId % colors.length];
+
+            // Draw saved boxes
+            modalState.boxes.forEach(boxInfo => {
+                const color = colors[boxInfo.class_id % colors.length];
+                const name = promptLibrary.class_names[boxInfo.class_id] || 'Unknown';
+                const box = boxInfo.bbox;
+                
+                modalCtx.strokeStyle = color;
+                modalCtx.lineWidth = 3;
+                modalCtx.strokeRect(box[0], box[1], box[2] - box[0], box[3] - box[1]);
+                modalCtx.fillStyle = color;
+                modalCtx.font = '24px sans-serif';
+                modalCtx.fillText(name, box[0] + 5, box[1] + 24);
             });
+
+            // Draw current drawing
+            if (modalState.isDrawing) {
+                modalCtx.strokeStyle = activeColor;
+                modalCtx.lineWidth = 1;
+                modalCtx.setLineDash([5, 5]);
+                modalCtx.strokeRect(modalState.startPos.x, modalState.startPos.y, modalState.mousePos.x - modalState.startPos.x, modalState.mousePos.y - modalState.startPos.y);
+                modalCtx.setLineDash([]);
+            }
             
-            activeClassId = newId;
-            updateLegend();
-            drawAnnotations();
+            // Draw crosshairs
+            modalCtx.strokeStyle = activeColor;
+            modalCtx.lineWidth = 0.5;
+            modalCtx.beginPath();
+            modalCtx.moveTo(modalState.mousePos.x, 0);
+            modalCtx.lineTo(modalState.mousePos.x, modalCanvas.height);
+            modalCtx.moveTo(0, modalState.mousePos.y);
+            modalCtx.lineTo(modalCanvas.width, modalState.mousePos.y);
+            modalCtx.stroke();
+        }
+
+        function getModalScaledMousePos(event) {
+            const rect = modalCanvas.getBoundingClientRect();
+            const scaleX = modalState.originalSize.w / rect.width;
+            const scaleY = modalState.originalSize.h / rect.height;
+            return {
+                x: (event.clientX - rect.left) * scaleX,
+                y: (event.clientY - rect.top) * scaleY
+            };
+        }
+
+        modalCanvas.addEventListener('mousedown', (e) => {
+            if (e.button !== 0 || modalState.activeClassId === null) return;
+            modalState.isDrawing = true;
+            modalState.startPos = getModalScaledMousePos(e);
+            modalState.mousePos = modalState.startPos;
+            drawModalAnnotations();
         });
 
-        undoButton.addEventListener('click', () => {
-            drawnBoxes.pop();
-            drawAnnotations();
-            updateTrainButton();
+        modalCanvas.addEventListener('mousemove', (e) => {
+            modalState.mousePos = getModalScaledMousePos(e);
+            drawModalAnnotations();
         });
 
-        clearBoxesButton.addEventListener('click', () => {
-            if (window.confirm("Clear all boxes for THIS image?")) {
-                drawnBoxes = [];
-                drawAnnotations();
-                updateTrainButton();
+        modalCanvas.addEventListener('mouseup', (e) => {
+            if (!modalState.isDrawing) return;
+            modalState.isDrawing = false;
+            const endPos = getModalScaledMousePos(e);
+
+            const box = [
+                Math.round(Math.min(modalState.startPos.x, endPos.x)),
+                Math.round(Math.min(modalState.startPos.y, endPos.y)),
+                Math.round(Math.max(modalState.startPos.x, endPos.x)),
+                Math.round(Math.max(modalState.startPos.y, endPos.y))
+            ];
+
+            if (box[2] - box[0] < 5 || box[3] - box[1] < 5) {
+                drawModalAnnotations();
+                return;
+            }
+
+            modalState.boxes.push({
+                bbox: box,
+                class_id: parseInt(modalState.activeClassId)
+            });
+            drawModalAnnotations();
+        });
+        
+        modalCanvas.addEventListener('mouseleave', () => {
+            if(modalState.isDrawing) modalCanvas.dispatchEvent(new MouseEvent('mouseup'));
+            modalState.mousePos = {x: -1, y: -1};
+            drawModalAnnotations();
+        });
+
+        modalUndoBtn.addEventListener('click', () => {
+            modalState.boxes.pop();
+            drawModalAnnotations();
+        });
+        
+        modalClearBtn.addEventListener('click', () => {
+            if(window.confirm('Clear all boxes for this image?')) {
+                modalState.boxes = [];
+                drawModalAnnotations();
             }
         });
 
-        // --- Initial Load ---
-        document.addEventListener('DOMContentLoaded', () => {
-            checkServerStatus();
-        });
+        // Add resize listener for modal canvas
+        window.addEventListener('resize', initModalCanvas);
+        
+        // --- START THE APP ---
+        init();
+    });
     </script>
 </body>
 </html>
