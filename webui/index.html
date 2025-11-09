@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>One-Shot YOLO Trainer</title>
+    <!-- Load Tailwind CSS for easy styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles */
+        body { font-family: 'Inter', sans-serif; }
+        /* Make the canvas sit directly on top of the image */
+        #annotation-container {
+            position: relative;
+            display: inline-block;
+            background-color: #222;
+        }
+        #annotation-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            cursor: crosshair;
+        }
+        #reference-image {
+            display: block;
+            max-width: 100%;
+            height: auto;
+        }
+        /* Style for the video stream */
+        #video-stream {
+            width: 100%;
+            height: auto;
+            max-height: 80vh;
+            background-color: #111;
+            border-radius: 0.5rem;
+        }
+        /* Simple spinner */
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen flex flex-col items-center p-4">
+
+    <div class="w-full max-w-5xl mx-auto">
+        <header class="flex justify-between items-center mb-4 p-4 bg-gray-800 rounded-lg shadow-lg">
+            <h1 class="text-2xl font-bold text-white">One-Shot YOLO Trainer</h1>
+            <button id="reset-button" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-all">
+                Start Over
+            </button>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="bg-gray-800 rounded-lg shadow-lg p-6">
+            
+            <!-- Step 1: Capture -->
+            <div id="step-capture" class="step-container">
+                <h2 class="text-xl font-semibold mb-2">Step 1: Capture Reference Image</h2>
+                <p class="mb-4 text-gray-400">Position your object(s) in front of the server's camera. Use the crosshairs to aim.</p>
+                <div class="mb-4 rounded-lg overflow-hidden shadow-inner">
+                    <img id="video-stream-capture" src="" alt="Live Capture Feed" class="w-full h-auto bg-gray-700">
+                </div>
+                <button id="capture-button" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-all">
+                    &#128248; Capture Photo
+                </button>
+            </div>
+
+            <!-- Step 2: Annotate -->
+            <div id="step-annotate" class="step-container hidden">
+                <h2 class="text-xl font-semibold mb-2">Step 2: Annotate Objects</h2>
+                <p class="mb-4 text-gray-400">Click and drag on the image to draw boxes. Each new object type gets a new ID (color).</p>
+                
+                <!-- Annotation UI -->
+                <div class="flex flex-col md:flex-row gap-4">
+                    <!-- Image and Canvas -->
+                    <div id="annotation-container" class="border-2 border-dashed border-gray-600 rounded-lg overflow-hidden flex-grow">
+                        <img id="reference-image" src="" alt="Reference Image">
+                        <canvas id="annotation-canvas"></canvas>
+                    </div>
+                    <!-- Controls and Legend -->
+                    <div class="flex-shrink-0 w-full md:w-64">
+                        <div class="mb-4">
+                            <button id="undo-button" class="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded-lg mb-2">Undo Last Box</button>
+                            <button id="clear-boxes-button" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg">Clear All Boxes</button>
+                        </div>
+                        <h3 class="font-semibold mb-2">Object Legend:</h3>
+                        <ul id="legend-list" class="bg-gray-700 p-3 rounded-lg text-sm">
+                            <!-- Legend items will be added here by JS -->
+                        </ul>
+                    </div>
+                </div>
+
+                <button id="train-button" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-all mt-6 disabled:bg-gray-500">
+                    &#129504; Start Training
+                </button>
+            </div>
+
+            <!-- Step 3: Training -->
+            <div id="step-training" class="step-container hidden text-center p-12">
+                <div class="spinner mx-auto mb-6"></div>
+                <h2 class="text-2xl font-semibold mb-2">Step 3: Training in Progress...</h2>
+                <p class="text-gray-400">The model is being prompted with your annotations.</p>
+                <p class="text-gray-500 text-sm mt-2">This may take a minute, especially the first time it downloads the base model.</p>
+            </div>
+
+            <!-- Step 4: Detect -->
+            <div id="step-detect" class="step-container hidden">
+                <h2 class="text-xl font-semibold mb-2">Step 4: Live Detection</h2>
+                <p class="mb-4 text-gray-400">The server is now running your custom model on the live camera feed.</p>
+                <div class="mb-4 rounded-lg overflow-hidden shadow-inner">
+                    <img id="video-stream-detect" src="" alt="Live Detection Feed" class="w-full h-auto bg-gray-700">
+                </div>
+                <p class="text-center text-gray-500">To re-train, click "Start Over" at the top.</p>
+            </div>
+
+        </main>
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        const steps = {
+            capture: document.getElementById('step-capture'),
+            annotate: document.getElementById('step-annotate'),
+            training: document.getElementById('step-training'),
+            detect: document.getElementById('step-detect')
+        };
+        const videoStreamCapture = document.getElementById('video-stream-capture');
+        const videoStreamDetect = document.getElementById('video-stream-detect');
+        
+        const captureButton = document.getElementById('capture-button');
+        const trainButton = document.getElementById('train-button');
+        const resetButton = document.getElementById('reset-button');
+        const undoButton = document.getElementById('undo-button');
+        const clearBoxesButton = document.getElementById('clear-boxes-button');
+        
+        const refImage = document.getElementById('reference-image');
+        const canvas = document.getElementById('annotation-canvas');
+        const ctx = canvas.getContext('2d');
+        const legendList = document.getElementById('legend-list');
+
+        // --- App State & Annotation ---
+        let appState = 'CAPTURE';
+        let drawnBoxes = []; // Stores { bbox, class_id, color }
+        let currentClassId = 0;
+        let isDrawing = false;
+        let startPos = { x: 0, y: 0 };
+        
+        // Scaled coordinates of the mouse on the canvas
+        let mousePos = { x: 0, y: 0 }; 
+
+        // Image's original size (from server) vs. its displayed size
+        let imageOriginalSize = { w: 0, h: 0 };
+        let imageRenderSize = { w: 0, h: 0 };
+
+        const colors = [
+            '#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6',
+            '#1abc9c', '#e67e22', '#34495e', '#ecf0f1', '#95a5a6'
+        ];
+
+        // --- Utility Functions ---
+
+        /**
+         * Shows the specified step container and hides all others.
+         * @param {string} stepName - 'capture', 'annotate', 'training', 'detect'
+         */
+        function showStep(stepName) {
+            appState = stepName.toUpperCase();
+            Object.keys(steps).forEach(key => {
+                if (key === stepName) {
+                    steps[key].classList.remove('hidden');
+                } else {
+                    steps[key].classList.add('hidden');
+                }
+            });
+
+            // Start/Stop video streams
+            // We use a cache-busting timestamp to force the browser to reload the stream
+            const timestamp = new Date().getTime();
+            if (stepName === 'capture') {
+                videoStreamCapture.src = `/video/capture_feed?t=${timestamp}`;
+                videoStreamDetect.src = ''; // Stop detect stream
+            } else if (stepName === 'detect') {
+                videoStreamDetect.src = `/video/detection_feed?t=${timestamp}`;
+                videoStreamCapture.src = ''; // Stop capture stream
+            } else {
+                videoStreamCapture.src = '';
+                videoStreamDetect.src = '';
+            }
+            
+            if (stepName === 'annotate') {
+                // When showing annotate step, update the canvas
+                setTimeout(initCanvas, 50); // Use timeout to allow image to render
+            }
+            
+            // Update train button state
+            updateTrainButton();
+        }
+
+        /**
+         * Fetches the current app state from the server and updates the UI.
+         */
+        async function checkServerStatus() {
+            try {
+                const response = await fetch('/api/status');
+                if (!response.ok) throw new Error('Network response was not ok');
+                const data = await response.json();
+                
+                // Server state drives client state
+                if (data.status === 'CAPTURE') showStep('capture');
+                else if (data.status === 'ANNOTATE') {
+                    // This case happens if you reload the page
+                    // We need to fetch the image info again
+                    await loadAnnotationData();
+                    showStep('annotate');
+                }
+                else if (data.status === 'TRAINING') showStep('training');
+                else if (data.status === 'DETECT') showStep('detect');
+                
+            } catch (error) {
+                console.error('Error checking server status:', error);
+                // Maybe show an error overlay
+            }
+        }
+        
+        /**
+         * Gets the true (x, y) coordinates of a mouse event on the canvas,
+         * scaled to the image's original resolution.
+         */
+        function getScaledMousePos(event) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = imageOriginalSize.w / rect.width;
+            const scaleY = imageOriginalSize.h / rect.height;
+
+            return {
+                x: (event.clientX - rect.left) * scaleX,
+                y: (event.clientY - rect.top) * scaleY
+            };
+        }
+
+        // --- Canvas Drawing Functions ---
+
+        /**
+         * Sets up the canvas size to match the reference image.
+         */
+        function initCanvas() {
+            if (!refImage.src || !refImage.complete) {
+                console.warn("Reference image not loaded yet.");
+                return;
+            }
+            
+            // Get the *displayed* size of the image
+            const rect = refImage.getBoundingClientRect();
+            imageRenderSize = { w: rect.width, h: rect.height };
+            
+            // Set canvas *display* size to match image's display size
+            canvas.style.width = `${imageRenderSize.w}px`;
+            canvas.style.height = `${imageRenderSize.h}px`;
+
+            // Set canvas *buffer* size to match image's *original* size
+            canvas.width = imageOriginalSize.w;
+            canvas.height = imageOriginalSize.h;
+            
+            console.log(`Canvas Initialized: Original(${imageOriginalSize.w}x${imageOriginalSize.h}), Render(${imageRenderSize.w}x${imageRenderSize.h})`);
+            
+            // Re-draw all boxes
+            drawAnnotations();
+        }
+
+        /**
+         * Clears and re-draws all annotations and the current drawing box.
+         */
+        function drawAnnotations() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw all saved boxes
+            drawnBoxes.forEach(box => {
+                ctx.strokeStyle = box.color;
+                ctx.lineWidth = 3;
+                ctx.strokeRect(box.bbox[0], box.bbox[1], box.bbox[2] - box.bbox[0], box.bbox[3] - box.bbox[1]);
+                
+                // Draw ID text
+                ctx.fillStyle = box.color;
+                ctx.font = '24px sans-serif';
+                ctx.fillText(`ID: ${box.class_id}`, box.bbox[0] + 5, box.bbox[1] + 24);
+            });
+
+            // Draw the box being currently drawn
+            if (isDrawing) {
+                ctx.strokeStyle = colors[currentClassId % colors.length];
+                ctx.lineWidth = 1;
+                ctx.setLineDash([5, 5]);
+                ctx.strokeRect(startPos.x, startPos.y, mousePos.x - startPos.x, mousePos.y - startPos.y);
+                ctx.setLineDash([]);
+            }
+            
+            // Draw crosshairs at mouse position
+            ctx.strokeStyle = colors[currentClassId % colors.length];
+            ctx.lineWidth = 0.5;
+            ctx.beginPath();
+            ctx.moveTo(mousePos.x, 0);
+            ctx.lineTo(mousePos.x, canvas.height);
+            ctx.moveTo(0, mousePos.y);
+            ctx.lineTo(canvas.width, mousePos.y);
+            ctx.stroke();
+        }
+
+        /**
+         * Updates the legend UI.
+         */
+        function updateLegend() {
+            legendList.innerHTML = '';
+            const usedIds = new Set(drawnBoxes.map(b => b.class_id));
+            
+            if (drawnBoxes.length === 0) {
+                 legendList.innerHTML = '<li class="text-gray-400">No objects added yet.</li>';
+            } else {
+                usedIds.forEach(id => {
+                    const color = colors[id % colors.length];
+                    const count = drawnBoxes.filter(b => b.class_id === id).length;
+                    const li = document.createElement('li');
+                    li.className = 'flex items-center mb-1';
+                    li.innerHTML = `
+                        <span class="w-4 h-4 rounded-full mr-2" style="background-color: ${color}"></span>
+                        <span>ID ${id}</span>
+                        <span class="ml-auto text-gray-400">${count} box(es)</span>
+                    `;
+                    legendList.appendChild(li);
+                });
+            }
+            
+            // Show next ID
+            const li = document.createElement('li');
+            li.className = 'flex items-center mt-2 pt-2 border-t border-gray-600';
+            li.innerHTML = `
+                <span class="w-4 h-4 rounded-full mr-2" style="background-color: ${colors[currentClassId % colors.length]}"></span>
+                <span>Next Object ID: ${currentClassId}</span>
+                <button id="next-id-button" class="ml-auto text-xs bg-blue-500 hover:bg-blue-600 px-2 py-1 rounded">New ID</button>
+            `;
+            legendList.appendChild(li);
+            
+            document.getElementById('next-id-button').onclick = (e) => {
+                e.stopPropagation();
+                const usedIds = new Set(drawnBoxes.map(b => b.class_id));
+                currentClassId = usedIds.size > 0 ? Math.max(...usedIds) + 1 : 0;
+                // Find the next *unused* id
+                while(usedIds.has(currentClassId)) {
+                    currentClassId++;
+                }
+                updateLegend();
+            };
+        }
+        
+        function updateTrainButton() {
+            trainButton.disabled = drawnBoxes.length === 0;
+        }
+
+        // --- Canvas Event Handlers ---
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return; // Only left click
+            isDrawing = true;
+            startPos = getScaledMousePos(e);
+            mousePos = startPos;
+            drawAnnotations();
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            mousePos = getScaledMousePos(e);
+            if (isDrawing) {
+                drawAnnotations();
+            } else {
+                // Just draw crosshairs
+                drawAnnotations();
+            }
+        });
+
+        canvas.addEventListener('mouseup', (e) => {
+            if (!isDrawing) return;
+            isDrawing = false;
+            
+            const endPos = getScaledMousePos(e);
+
+            // Normalize coordinates (top-left, bottom-right)
+            const box = [
+                Math.min(startPos.x, endPos.x),
+                Math.min(startPos.y, endPos.y),
+                Math.max(startPos.x, endPos.x),
+                Math.max(startPos.y, endPos.y)
+            ];
+
+            // Ignore tiny boxes
+            if (box[2] - box[0] < 5 || box[3] - box[1] < 5) {
+                drawAnnotations();
+                return;
+            }
+
+            drawnBoxes.push({
+                bbox: box.map(coord => Math.round(coord)), // Send integers to server
+                class_id: currentClassId,
+                color: colors[currentClassId % colors.length]
+            });
+
+            drawAnnotations();
+            updateLegend();
+            updateTrainButton();
+        });
+        
+        canvas.addEventListener('mouseleave', () => {
+            if (isDrawing) {
+                // Act as if mouseup happened
+                canvas.dispatchEvent(new MouseEvent('mouseup'));
+            }
+            mousePos = {x: -1, y: -1}; // Hide crosshairs
+            drawAnnotations();
+        });
+        
+        // Resize canvas when window or image resizes
+        window.addEventListener('resize', initCanvas);
+        refImage.addEventListener('load', initCanvas);
+
+
+        // --- API Call Functions ---
+
+        /**
+         * Called when "Capture Photo" button is clicked.
+         */
+        async function handleCaptureClick() {
+            console.log("Capturing image...");
+            try {
+                const response = await fetch('/api/capture', { method: 'POST' });
+                if (!response.ok) throw new Error('Failed to capture');
+                
+                const data = await response.json();
+                console.log('Capture response:', data);
+                
+                // Store image details
+                imageOriginalSize = { w: data.image_width, h: data.image_height };
+                
+                // Load the new image, then switch steps
+                // Add timestamp to bust cache
+                refImage.src = `${data.image_url}?t=${new Date().getTime()}`;
+                refImage.onload = () => {
+                    console.log("Reference image loaded into <img>");
+                    // Reset annotation state
+                    drawnBoxes = [];
+                    currentClassId = 0;
+                    updateLegend();
+                    updateTrainButton();
+                    // Switch to the annotate step
+                    showStep('annotate');
+                    // Initialize canvas
+                    initCanvas();
+                };
+
+            } catch (error) {
+                console.error('Capture error:', error);
+                alert('Failed to capture image. Check server logs.');
+            }
+        }
+        
+        /**
+         * Helper to load data for annotation step, e.g., on page reload.
+         */
+        async function loadAnnotationData() {
+            try {
+                // This is a bit of a hack. We just re-fetch the image path
+                // from the server's 'generated' folder.
+                
+                // --- THIS LINE IS FIXED ---
+                // It no longer references Python variables and uses the correct static path.
+                const imgUrl = `/generated/reference_image.jpg`;
+                // --- END OF FIX ---
+                
+                // We need to get the image dimensions
+                const img = new Image();
+                img.src = `${imgUrl}?t=${new Date().getTime()}`;
+                await img.decode(); // Wait for image to be decoded
+                
+                imageOriginalSize = { w: img.naturalWidth, h: img.naturalHeight };
+                refImage.src = img.src;
+                
+                refImage.onload = () => {
+                    initCanvas();
+                };
+                
+            } catch (e) {
+                console.warn("Could not pre-load annotation data, starting over.", e);
+                await handleResetClick();
+            }
+        }
+
+        /**
+         * Called when "Start Training" button is clicked.
+         */
+        async function handleTrainClick() {
+            console.log("Starting training with boxes:", drawnBoxes);
+            if (drawnBoxes.length === 0) return;
+
+            showStep('training');
+
+            // Prep data for server (we just need bbox and class_id)
+            const trainingData = drawnBoxes.map(b => ({
+                bbox: b.bbox,
+                class_id: b.class_id
+            }));
+
+            try {
+                const response = await fetch('/api/train', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ boxes: trainingData })
+                });
+                
+                if (!response.ok) {
+                    const errData = await response.json();
+                    throw new Error(errData.error || 'Training request failed');
+                }
+
+                const data = await response.json();
+                console.log('Training response:', data);
+                
+                // Server will respond when training is done.
+                if (data.status === 'DETECT') {
+                    showStep('detect');
+                } else {
+                    // Something went wrong, go back to annotate
+                    alert('Training complete but status is not DETECT. Check logs.');
+                    showStep('annotate');
+                }
+
+            } catch (error) {
+                console.error('Training error:', error);
+                alert(`Training failed: ${error.message}`);
+                // Go back to the annotation step
+                showStep('annotate');
+            }
+        }
+
+        /**
+         * Called when "Start Over" button is clicked.
+         */
+        async function handleResetClick() {
+            console.log("Resetting application...");
+            try {
+                // Tell server to delete files and reset state
+                await fetch('/api/reset', { method: 'POST' });
+                
+                // Reset local state
+                drawnBoxes = [];
+                currentClassId = 0;
+                refImage.src = '';
+                imageOriginalSize = { w: 0, h: 0 };
+                updateLegend();
+                
+                // Go back to capture step
+                showStep('capture');
+                
+            } catch (error) {
+                console.error('Reset error:', error);
+                alert('Failed to reset. Please refresh the page.');
+            }
+        }
+
+
+        // --- Button Event Listeners ---
+        captureButton.addEventListener('click', handleCaptureClick);
+        trainButton.addEventListener('click', handleTrainClick);
+        resetButton.addEventListener('click', handleResetClick);
+
+        undoButton.addEventListener('click', () => {
+            drawnBoxes.pop();
+            drawAnnotations();
+            updateLegend();
+            updateTrainButton();
+        });
+
+        clearBoxesButton.addEventListener('click', () => {
+            drawnBoxes = [];
+            currentClassId = 0;
+            drawAnnotations();
+            updateLegend();
+            updateTrainButton();
+        });
+
+        // --- Initial Load ---
+        document.addEventListener('DOMContentLoaded', () => {
+            // Check server status on load to see what step we're on
+            // This handles page reloads
+            checkServerStatus();
+        });
+
+    </script>
+</body>
+</html>
