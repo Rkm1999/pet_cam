@@ -47,6 +47,12 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        /* Style for active class */
+        .active-class {
+            border-width: 2px;
+            border-color: #3498db; /* blue-500 */
+            background-color: #374151; /* gray-700 */
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-100 min-h-screen flex flex-col items-center p-4">
@@ -77,7 +83,7 @@
             <!-- Step 2: Annotate -->
             <div id="step-annotate" class="step-container hidden">
                 <h2 class="text-xl font-semibold mb-2">Step 2: Annotate Objects</h2>
-                <p class="mb-4 text-gray-400">Click and drag on the image to draw boxes. Each new object type gets a new ID (color).</p>
+                <p class="mb-4 text-gray-400">Add object types, name them, then click and drag on the image to draw boxes.</p>
                 
                 <!-- Annotation UI -->
                 <div class="flex flex-col md:flex-row gap-4">
@@ -92,8 +98,11 @@
                             <button id="undo-button" class="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded-lg mb-2">Undo Last Box</button>
                             <button id="clear-boxes-button" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg">Clear All Boxes</button>
                         </div>
-                        <h3 class="font-semibold mb-2">Object Legend:</h3>
-                        <ul id="legend-list" class="bg-gray-700 p-3 rounded-lg text-sm">
+                        <h3 class="font-semibold mb-2">Object Types:</h3>
+                        <button id="add-class-button" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg mb-3">
+                            + Add New Class
+                        </button>
+                        <ul id="legend-list" class="bg-gray-700 p-3 rounded-lg text-sm space-y-2">
                             <!-- Legend items will be added here by JS -->
                         </ul>
                     </div>
@@ -141,6 +150,7 @@
         const resetButton = document.getElementById('reset-button');
         const undoButton = document.getElementById('undo-button');
         const clearBoxesButton = document.getElementById('clear-boxes-button');
+        const addClassButton = document.getElementById('add-class-button');
         
         const refImage = document.getElementById('reference-image');
         const canvas = document.getElementById('annotation-canvas');
@@ -149,8 +159,12 @@
 
         // --- App State & Annotation ---
         let appState = 'CAPTURE';
-        let drawnBoxes = []; // Stores { bbox, class_id, color }
-        let currentClassId = 0;
+        
+        // --- NEW State for Classes ---
+        let classTypes = []; // Stores { id: 0, name: "Object 0", color: "#..." }
+        let activeClassId = 0;
+        
+        let drawnBoxes = []; // Stores { bbox, class_id, class_name, color }
         let isDrawing = false;
         let startPos = { x: 0, y: 0 };
         
@@ -280,6 +294,8 @@
          */
         function drawAnnotations() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            const activeColor = classTypes.find(c => c.id === activeClassId)?.color || '#ffffff';
 
             // Draw all saved boxes
             drawnBoxes.forEach(box => {
@@ -287,15 +303,15 @@
                 ctx.lineWidth = 3;
                 ctx.strokeRect(box.bbox[0], box.bbox[1], box.bbox[2] - box.bbox[0], box.bbox[3] - box.bbox[1]);
                 
-                // Draw ID text
+                // Draw name text
                 ctx.fillStyle = box.color;
                 ctx.font = '24px sans-serif';
-                ctx.fillText(`ID: ${box.class_id}`, box.bbox[0] + 5, box.bbox[1] + 24);
+                ctx.fillText(box.class_name, box.bbox[0] + 5, box.bbox[1] + 24);
             });
 
             // Draw the box being currently drawn
             if (isDrawing) {
-                ctx.strokeStyle = colors[currentClassId % colors.length];
+                ctx.strokeStyle = activeColor;
                 ctx.lineWidth = 1;
                 ctx.setLineDash([5, 5]);
                 ctx.strokeRect(startPos.x, startPos.y, mousePos.x - startPos.x, mousePos.y - startPos.y);
@@ -303,7 +319,7 @@
             }
             
             // Draw crosshairs at mouse position
-            ctx.strokeStyle = colors[currentClassId % colors.length];
+            ctx.strokeStyle = activeColor;
             ctx.lineWidth = 0.5;
             ctx.beginPath();
             ctx.moveTo(mousePos.x, 0);
@@ -314,49 +330,58 @@
         }
 
         /**
-         * Updates the legend UI.
+         * Updates the legend UI based on classTypes and activeClassId
          */
         function updateLegend() {
             legendList.innerHTML = '';
-            const usedIds = new Set(drawnBoxes.map(b => b.class_id));
             
-            if (drawnBoxes.length === 0) {
-                 legendList.innerHTML = '<li class="text-gray-400">No objects added yet.</li>';
-            } else {
-                usedIds.forEach(id => {
-                    const color = colors[id % colors.length];
-                    const count = drawnBoxes.filter(b => b.class_id === id).length;
-                    const li = document.createElement('li');
-                    li.className = 'flex items-center mb-1';
-                    li.innerHTML = `
-                        <span class="w-4 h-4 rounded-full mr-2" style="background-color: ${color}"></span>
-                        <span>ID ${id}</span>
-                        <span class="ml-auto text-gray-400">${count} box(es)</span>
-                    `;
-                    legendList.appendChild(li);
-                });
+            if (classTypes.length === 0) {
+                 legendList.innerHTML = '<li class="text-gray-400">No object types added yet.</li>';
             }
-            
-            // Show next ID
-            const li = document.createElement('li');
-            li.className = 'flex items-center mt-2 pt-2 border-t border-gray-600';
-            li.innerHTML = `
-                <span class="w-4 h-4 rounded-full mr-2" style="background-color: ${colors[currentClassId % colors.length]}"></span>
-                <span>Next Object ID: ${currentClassId}</span>
-                <button id="next-id-button" class="ml-auto text-xs bg-blue-500 hover:bg-blue-600 px-2 py-1 rounded">New ID</button>
-            `;
-            legendList.appendChild(li);
-            
-            document.getElementById('next-id-button').onclick = (e) => {
-                e.stopPropagation();
-                const usedIds = new Set(drawnBoxes.map(b => b.class_id));
-                currentClassId = usedIds.size > 0 ? Math.max(...usedIds) + 1 : 0;
-                // Find the next *unused* id
-                while(usedIds.has(currentClassId)) {
-                    currentClassId++;
-                }
-                updateLegend();
-            };
+
+            classTypes.forEach(cls => {
+                const li = document.createElement('li');
+                li.className = `flex items-center p-2 rounded-lg cursor-pointer bg-gray-800 hover:bg-gray-700 ${cls.id === activeClassId ? 'active-class' : ''}`;
+                li.onclick = () => {
+                    activeClassId = cls.id;
+                    updateLegend();
+                    drawAnnotations(); // Redraw to update crosshair color
+                };
+
+                li.innerHTML = `
+                    <span class="w-4 h-4 rounded-full mr-2 flex-shrink-0" style="background-color: ${cls.color}"></span>
+                    <input 
+                        type="text" 
+                        value="${cls.name}" 
+                        data-id="${cls.id}"
+                        class="bg-transparent w-full focus:bg-gray-600 rounded px-1"
+                        placeholder="Object Name"
+                    >
+                `;
+                
+                // Stop click on input from propagating to li
+                const input = li.querySelector('input');
+                input.onclick = (e) => e.stopPropagation();
+                
+                // Update class name on change
+                input.onchange = (e) => {
+                    const id = parseInt(e.target.dataset.id);
+                    const newName = e.target.value;
+                    const classToUpdate = classTypes.find(c => c.id === id);
+                    if (classToUpdate) {
+                        classToUpdate.name = newName;
+                    }
+                    // Update any existing boxes with this new name
+                    drawnBoxes.forEach(box => {
+                        if (box.class_id === id) {
+                            box.class_name = newName;
+                        }
+                    });
+                    drawAnnotations(); // Redraw boxes with new names
+                };
+                
+                legendList.appendChild(li);
+            });
         }
         
         function updateTrainButton() {
@@ -367,6 +392,12 @@
 
         canvas.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return; // Only left click
+            
+            if (classTypes.length === 0) {
+                window.alert("Please add a new object type using the 'Add New Class' button first.");
+                return;
+            }
+
             isDrawing = true;
             startPos = getScaledMousePos(e);
             mousePos = startPos;
@@ -375,12 +406,7 @@
 
         canvas.addEventListener('mousemove', (e) => {
             mousePos = getScaledMousePos(e);
-            if (isDrawing) {
-                drawAnnotations();
-            } else {
-                // Just draw crosshairs
-                drawAnnotations();
-            }
+            drawAnnotations(); // Will draw current box or just crosshairs
         });
 
         canvas.addEventListener('mouseup', (e) => {
@@ -403,14 +429,22 @@
                 return;
             }
 
+            // Get active class details
+            const activeClass = classTypes.find(c => c.id === activeClassId);
+            if (!activeClass) {
+                console.error("No active class found!");
+                return;
+            }
+
             drawnBoxes.push({
                 bbox: box.map(coord => Math.round(coord)), // Send integers to server
-                class_id: currentClassId,
-                color: colors[currentClassId % colors.length]
+                class_id: activeClass.id,
+                class_name: activeClass.name,
+                color: activeClass.color
             });
 
             drawAnnotations();
-            updateLegend();
+            // Do not update legend, but update train button
             updateTrainButton();
         });
         
@@ -452,7 +486,8 @@
                     console.log("Reference image loaded into <img>");
                     // Reset annotation state
                     drawnBoxes = [];
-                    currentClassId = 0;
+                    classTypes = [];
+                    activeClassId = 0;
                     updateLegend();
                     updateTrainButton();
                     // Switch to the annotate step
@@ -463,7 +498,7 @@
 
             } catch (error) {
                 console.error('Capture error:', error);
-                alert('Failed to capture image. Check server logs.');
+                window.alert('Failed to capture image. Check server logs.');
             }
         }
         
@@ -474,11 +509,7 @@
             try {
                 // This is a bit of a hack. We just re-fetch the image path
                 // from the server's 'generated' folder.
-                
-                // --- THIS LINE IS FIXED ---
-                // It no longer references Python variables and uses the correct static path.
                 const imgUrl = `/generated/reference_image.jpg`;
-                // --- END OF FIX ---
                 
                 // We need to get the image dimensions
                 const img = new Image();
@@ -492,6 +523,13 @@
                     initCanvas();
                 };
                 
+                // On reload, we lose the class names. We'll start fresh.
+                // A more complex app would save/load this from the server.
+                drawnBoxes = [];
+                classTypes = [];
+                activeClassId = 0;
+                updateLegend();
+                
             } catch (e) {
                 console.warn("Could not pre-load annotation data, starting over.", e);
                 await handleResetClick();
@@ -502,22 +540,35 @@
          * Called when "Start Training" button is clicked.
          */
         async function handleTrainClick() {
-            console.log("Starting training with boxes:", drawnBoxes);
             if (drawnBoxes.length === 0) return;
+            
+            // Check for empty class names
+            if (classTypes.some(c => !c.name.trim())) {
+                window.alert("Please make sure all object types have a name.");
+                return;
+            }
+            
+            console.log("Starting training with boxes:", drawnBoxes);
+            console.log("With class types:", classTypes);
 
             showStep('training');
 
-            // Prep data for server (we just need bbox and class_id)
+            // Prep data for server
             const trainingData = drawnBoxes.map(b => ({
                 bbox: b.bbox,
                 class_id: b.class_id
             }));
+            
+            const classNames = classTypes.map(c => c.name.trim());
 
             try {
                 const response = await fetch('/api/train', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ boxes: trainingData })
+                    body: JSON.stringify({ 
+                        boxes: trainingData,
+                        class_names: classNames // Send names
+                    })
                 });
                 
                 if (!response.ok) {
@@ -533,13 +584,13 @@
                     showStep('detect');
                 } else {
                     // Something went wrong, go back to annotate
-                    alert('Training complete but status is not DETECT. Check logs.');
+                    window.alert('Training complete but status is not DETECT. Check logs.');
                     showStep('annotate');
                 }
 
             } catch (error) {
                 console.error('Training error:', error);
-                alert(`Training failed: ${error.message}`);
+                window.alert(`Training failed: ${error.message}`);
                 // Go back to the annotation step
                 showStep('annotate');
             }
@@ -556,7 +607,8 @@
                 
                 // Reset local state
                 drawnBoxes = [];
-                currentClassId = 0;
+                classTypes = [];
+                activeClassId = 0;
                 refImage.src = '';
                 imageOriginalSize = { w: 0, h: 0 };
                 updateLegend();
@@ -566,7 +618,7 @@
                 
             } catch (error) {
                 console.error('Reset error:', error);
-                alert('Failed to reset. Please refresh the page.');
+                window.alert('Failed to reset. Please refresh the page.');
             }
         }
 
@@ -575,6 +627,21 @@
         captureButton.addEventListener('click', handleCaptureClick);
         trainButton.addEventListener('click', handleTrainClick);
         resetButton.addEventListener('click', handleResetClick);
+
+        addClassButton.addEventListener('click', () => {
+            const newId = classTypes.length > 0 ? Math.max(...classTypes.map(c => c.id)) + 1 : 0;
+            const newName = `Object ${newId}`;
+            
+            classTypes.push({
+                id: newId,
+                name: newName,
+                color: colors[newId % colors.length]
+            });
+            
+            activeClassId = newId;
+            updateLegend();
+            drawAnnotations(); // Update crosshair color
+        });
 
         undoButton.addEventListener('click', () => {
             drawnBoxes.pop();
@@ -585,7 +652,7 @@
 
         clearBoxesButton.addEventListener('click', () => {
             drawnBoxes = [];
-            currentClassId = 0;
+            // Do NOT clear classTypes
             drawAnnotations();
             updateLegend();
             updateTrainButton();

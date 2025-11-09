@@ -70,19 +70,22 @@ async def capture_image():
 @app.post("/api/train")
 async def start_training(data: dict = Body(...)):
     """
-    Receives bounding box data and starts the training process.
+    Receives bounding box data and class names, and starts the training process.
     This runs the blocking 'step_3_train_model' in a background thread.
     """
     boxes = data.get('boxes')
-    if not boxes:
-        return JSONResponse(content={"error": "No boxes data provided"}, status_code=400)
+    class_names = data.get('class_names') # Get new class_names
+    
+    if not boxes or not class_names:
+        return JSONResponse(content={"error": "No boxes or class_names data provided"}, status_code=400)
     
     app_state['status'] = 'TRAINING'
-    print(f"Received {len(boxes)} boxes. Starting training in background...")
+    print(f"Received {len(boxes)} boxes for {len(class_names)} classes. Starting training in background...")
 
     # Run the blocking function in a thread pool
     try:
-        await anyio.to_thread.run_sync(model_logic.step_3_train_model, boxes)
+        # Pass class_names to the training function
+        await anyio.to_thread.run_sync(model_logic.step_3_train_model, boxes, class_names)
         app_state['status'] = 'DETECT'
         return JSONResponse(content={"message": "Training complete", "status": "DETECT"})
     except Exception as e:

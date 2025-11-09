@@ -6,6 +6,7 @@ import threading
 from ultralytics import YOLO, YOLOE
 from ultralytics.models.yolo.yoloe import YOLOEVPSegPredictor
 import anyio # For running blocking code in async
+import json # --- ADD THIS IMPORT ---
 
 # ========== CONFIGURATION ==========
 # --- Use absolute paths based on this file's location ---
@@ -16,6 +17,8 @@ GENERATED_FILES_DIR = os.path.join(SCRIPT_DIR, GENERATED_FILES_DIR_NAME)
 
 REFERENCE_IMAGE_NAME = "reference_image.jpg"
 OUTPUT_MODEL_NAME = "custom_model.onnx"
+# --- ADD THIS NEW FILE NAME ---
+OUTPUT_NAMES_NAME = "custom_model_names.json"
 BASE_MODEL_NAME = "yoloe-11l-seg.pt"
 
 # Ensure the directory exists
@@ -23,11 +26,15 @@ os.makedirs(GENERATED_FILES_DIR, exist_ok=True)
 
 REFERENCE_IMAGE_FILENAME = os.path.join(GENERATED_FILES_DIR, REFERENCE_IMAGE_NAME)
 OUTPUT_MODEL_FILENAME = os.path.join(GENERATED_FILES_DIR, OUTPUT_MODEL_NAME)
+# --- ADD THIS NEW FILE PATH ---
+OUTPUT_NAMES_FILENAME = os.path.join(GENERATED_FILES_DIR, OUTPUT_NAMES_NAME)
 # ===================================
 
 # --- Global state for the model ---
 # We need to load the model into memory for detection
 detection_model = None
+# --- ADD THIS ---
+custom_names = {} # Global cache for our custom names
 model_load_lock = threading.Lock()
 
 def get_reference_image_path():
@@ -49,17 +56,26 @@ def clear_generated_files():
         os.remove(REFERENCE_IMAGE_FILENAME)
     if os.path.exists(OUTPUT_MODEL_FILENAME):
         os.remove(OUTPUT_MODEL_FILENAME)
-    global detection_model
+    # --- ADD THIS ---
+    if os.path.exists(OUTPUT_NAMES_FILENAME):
+        os.remove(OUTPUT_NAMES_FILENAME)
+    # --- END ADD ---
+    global detection_model, custom_names
     with model_load_lock:
         detection_model = None
+        custom_names = {} # Clear cached names
     print("✅ Files cleared.")
 
 
-def step_3_train_model(boxes_data: list):
+def step_3_train_model(boxes_data: list, class_names: list):
     """
     Logic from your Image-Prompt ONNX Conversion.py
     This is a BLOCKING, CPU/GPU-intensive function.
     It should be run in a separate thread.
+    
+    Args:
+        boxes_data (list): List of dicts, e.g., [{'bbox': [x1,y1,x2,y2], 'class_id': 0}, ...]
+        class_names (list): List of strings, e.g., ["key", "phone"]
     """
     print("\n--- STEP 3: TRAINING & EXPORTING MODEL ---")
     
@@ -79,7 +95,14 @@ def step_3_train_model(boxes_data: list):
     except Exception as e:
         print(f"❌ Failed to load base model {BASE_MODEL_NAME}. Ensure you are online.")
         print(f"Error: {e}")
-        return False
+        raise Exception(f"Failed to load base model: {e}") # Raise error
+
+    # --- NEW: Assign class names to the model ---
+    # This creates the mapping: {0: "key", 1: "phone", ...}
+    # We create the dict here to pass it to the export() function
+    names_dict = {i: name for i, name in enumerate(class_names)}
+    print(f"Set model class names: {names_dict}")
+    # --- End of new logic ---
 
     visual_prompts = {
         'bboxes': np.array(all_bboxes),
@@ -98,11 +121,12 @@ def step_3_train_model(boxes_data: list):
 
     print(f"Exporting model to ONNX...")
     try:
-        # Call export without the 'file' argument.
-        exported_file_path = model.export(format="onnx", imgsz=640) # Using 640 for better accuracy
+        # Call export. The 'names_dict' will be saved in the ONNX metadata.
+        # --- REMOVE 'names' ARGUMENT FROM HERE ---
+        exported_file_path = model.export(format="onnx", imgsz=640) # Pass names here
     except Exception as e:
         print(f"❌ Error during model.export(): {e}")
-        return False
+        raise Exception(f"Error during model export: {e}") # Raise error
 
     print(f"Model exported to default path: {exported_file_path}")
 
@@ -115,28 +139,43 @@ def step_3_train_model(boxes_data: list):
         print(f"Successfully renamed model to: {OUTPUT_MODEL_FILENAME}")
     except Exception as e:
         print(f"❌ Error renaming model: {e}")
-        return False
+        raise Exception(f"Error renaming model: {e}") # Raise error
+
+    # --- ADD THIS NEW BLOCK ---
+    # Save the names_dict to a JSON file
+    try:
+        with open(OUTPUT_NAMES_FILENAME, 'w') as f:
+            json.dump(names_dict, f)
+        print(f"✅ Names saved to {OUTPUT_NAMES_FILENAME}")
+    except Exception as e:
+        print(f"❌ Error saving names file: {e}")
+        raise Exception(f"Error saving names file: {e}") # Raise error
+    # --- END NEW BLOCK ---
 
     print("✅ Model export complete!")
     print("Object mapping:")
-    for box_info in boxes_data:
-        print(f"  ID {box_info['class_id']} -> Box {box_info['bbox']}")
+    for i, name in names_dict.items():
+        print(f"  ID {i} -> {name}")
     
     # --- Load the new model for detection ---
-    global detection_model
+    global detection_model, custom_names
     with model_load_lock:
         print(f"Loading new ONNX model for detection: {OUTPUT_MODEL_FILENAME}")
         detection_model = YOLO(OUTPUT_MODEL_FILENAME, task='segment')
-        print("✅ Detection model is loaded and ready.")
+        # --- REMOVE FAILING LINE ---
+        # detection_model.names = names_dict
+        
+        # --- ADD THIS ---
+        # Cache the names globally instead
+        custom_names = names_dict
+        # --- END ADD ---
+        
+        print(f"✅ Detection model is loaded and ready. Names will be applied from cache.")
         
     return True
 
 def run_detection_on_frame(frame: np.ndarray) -> np.ndarray:
-    """
-    Runs the loaded ONNX model on a single frame and returns the annotated frame.
-    Will auto-load the model from disk if it exists but isn't in memory.
-    """
-    global detection_model
+    global detection_model, custom_names
     
     with model_load_lock:
         if detection_model is None:
@@ -144,8 +183,26 @@ def run_detection_on_frame(frame: np.ndarray) -> np.ndarray:
             if model_is_ready():
                 print(f"Model file found. Loading {OUTPUT_MODEL_FILENAME} into memory...")
                 try:
+                    # YOLO() will automatically read the class names from the ONNX metadata
                     detection_model = YOLO(OUTPUT_MODEL_FILENAME, task='segment')
-                    print("✅ Detection model is loaded and ready.")
+                    print(f"✅ Detection model is loaded. Will now apply custom names.")
+
+                    # --- ADD THIS BLOCK TO LOAD NAMES ON-THE-FLY ---
+                    try:
+                        with open(OUTPUT_NAMES_FILENAME, 'r') as f:
+                            # json keys are strings, need to convert back to int
+                            names_from_file = json.load(f)
+                            # --- MODIFY THIS ---
+                            # Load into our global cache
+                            custom_names = {int(k): v for k, v in names_from_file.items()}
+                        # --- REMOVE FAILING LINE ---
+                        # detection_model.names = names_dict
+                        print(f"✅ Auto-loaded model. Names manually set: {custom_names}")
+                    except Exception as e:
+                        print(f"❌ Failed to auto-load/apply names: {e}")
+                        # Model will run with wrong (COCO) names, but it's better than crashing
+                    # --- END ADD ---
+                        
                 except Exception as e:
                     print(f"❌ Failed to auto-load model: {e}")
                     # Put a permanent error on the frame
@@ -161,7 +218,15 @@ def run_detection_on_frame(frame: np.ndarray) -> np.ndarray:
     # Run prediction
     try:
         results = detection_model.predict(frame, verbose=False, imgsz=640)
-        annotated_frame = results[0].plot(boxes=True, masks=True) # Show masks too!
+        
+        # --- THIS IS THE KEY FIX ---
+        # Overwrite the names on the *results* object, not the model object
+        if custom_names and results:
+            results[0].names = custom_names
+        # --- END FIX ---
+
+        # results[0].plot() will automatically use detection_model.names for labels
+        annotated_frame = results[0].plot(boxes=True, masks=True) 
         
         # Add FPS text
         try:
