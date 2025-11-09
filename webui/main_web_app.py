@@ -72,6 +72,9 @@ async def start_training(data: dict = Body(...)):
     """
     class_names = data.get('class_names') 
     annotations = data.get('annotations')
+    # --- ADD THIS LINE ---
+    # Get the selected base model, with a fallback
+    base_model = data.get('base_model', 'yoloe-11l-seg.pt') # Use 'yoloe-11l-seg.pt' as a default
     
     if class_names is None or annotations is None:
         return JSONResponse(content={"error": "Invalid library data provided"}, status_code=400)
@@ -86,7 +89,8 @@ async def start_training(data: dict = Body(...)):
     print("Starting training in background...")
     try:
         # Pass the data directly to the training function
-        await anyio.to_thread.run_sync(model_logic.step_3_train_model, annotations, class_names)
+        # --- MODIFY THIS LINE ---
+        await anyio.to_thread.run_sync(model_logic.step_3_train_model, annotations, class_names, base_model)
         return JSONResponse(content={"message": "Training complete"})
     except Exception as e:
         print(f"❌ Training failed: {e}")

@@ -8,6 +8,7 @@ from ultralytics.models.yolo.yoloe import YOLOEVPSegPredictor
 import anyio # For running blocking code in async
 import json
 import glob
+import shutil # --- 1. ADD THIS IMPORT ---
 
 # ========== CONFIGURATION ==========
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -15,10 +16,14 @@ GENERATED_FILES_DIR_NAME = "generated"
 GENERATED_FILES_DIR = os.path.join(SCRIPT_DIR, GENERATED_FILES_DIR_NAME)
 
 REFERENCE_IMAGE_PREFIX = "reference"
-OUTPUT_MODEL_NAME = "custom_model.onnx"
-# --- NEW: This is our persistent "database" file ---
+# --- 2. CHANGE THIS ---
+# From: OUTPUT_MODEL_NAME = "custom_model.onnx"
+# To: (The directory name Ultralytics will create)
+OUTPUT_MODEL_NAME = "custom_model.onnx" 
+# --- END CHANGE ---
 PROMPT_LIBRARY_NAME = "prompt_library.json" 
-BASE_MODEL_NAME = "yoloe-11l-seg.pt"
+# --- DELETE THIS LINE ---
+# BASE_MODEL_NAME = "yoloe-11l-seg.pt"
 
 os.makedirs(GENERATED_FILES_DIR, exist_ok=True)
 
@@ -63,7 +68,11 @@ def get_output_model_path():
 
 def model_is_ready():
     """Checks if the ONNX model file exists."""
-    return os.path.exists(OUTPUT_MODEL_FILENAME)
+    # --- 3. CHANGE THIS ---
+    # From: return os.path.exists(OUTPUT_MODEL_FILENAME)
+    # To: Check for the directory
+    return os.path.isdir(OUTPUT_MODEL_FILENAME)
+    # --- END CHANGE ---
 
 def clear_generated_files():
     """Deletes the model, ALL reference images, and the prompt library."""
@@ -75,8 +84,12 @@ def clear_generated_files():
         if os.path.exists(f):
             os.remove(f)
             
-    if os.path.exists(OUTPUT_MODEL_FILENAME):
-        os.remove(OUTPUT_MODEL_FILENAME)
+    # --- 4. CHANGE THIS ---
+    # From: if os.path.exists(OUTPUT_MODEL_FILENAME): os.remove(OUTPUT_MODEL_FILENAME)
+    # To: Remove the directory
+    if os.path.isdir(OUTPUT_MODEL_FILENAME):
+        shutil.rmtree(OUTPUT_MODEL_FILENAME)
+    # --- END CHANGE ---
     if os.path.exists(PROMPT_LIBRARY_FILENAME):
         os.remove(PROMPT_LIBRARY_FILENAME)
 
@@ -88,7 +101,8 @@ def clear_generated_files():
 
 
 # --- MODIFIED: This function is now called by the API ---
-def step_3_train_model(all_annotations: dict, class_names_dict: dict):
+# --- ADD 'base_model_name' ARGUMENT ---
+def step_3_train_model(all_annotations: dict, class_names_dict: dict, base_model_name: str):
     """
     Trains the model using annotations and names from the prompt library.
     
@@ -97,6 +111,8 @@ def step_3_train_model(all_annotations: dict, class_names_dict: dict):
             e.g., {"reference_0.jpg": [{'bbox': [x,y,x,y], 'class_id': 0}, ...]}
         class_names_dict (dict): 
             e.g., {"0": "key", "1": "phone"}
+        base_model_name (str):
+            The name of the base model to use, e.g., "yolov8s-seg.pt"
     """
     print("\n--- STEP 3: TRAINING & EXPORTING MODEL ---")
     
@@ -139,11 +155,14 @@ def step_3_train_model(all_annotations: dict, class_names_dict: dict):
         'cls': nested_classes
     }
 
-    print(f"Loading base model: {BASE_MODEL_NAME}")
+    # --- MODIFY THESE LINES ---
+    print(f"Loading base model: {base_model_name}")
     try:
-        model = YOLOE(BASE_MODEL_NAME)
+        # YOLO() is a generic constructor that works for both YOLOv8 and YOLOE
+        model = YOLO(base_model_name)
     except Exception as e:
-        raise Exception(f"Failed to load base model: {e}")
+        raise Exception(f"Failed to load base model '{base_model_name}': {e}")
+    # --- END MODIFY ---
 
     print("Prompting model with annotations...")
     model.predict(
@@ -156,16 +175,27 @@ def step_3_train_model(all_annotations: dict, class_names_dict: dict):
 
     print(f"Exporting model to ONNX...")
     try:
+        # --- 5. CHANGE THIS ---
+        # From: exported_file_path = model.export(format="onnx", imgsz=640)
+        # To:
         exported_file_path = model.export(format="onnx", imgsz=640)
+        # --- END CHANGE ---
     except Exception as e:
         raise Exception(f"Error during model export: {e}")
 
     print(f"Model exported to default path: {exported_file_path}")
 
     try:
-        if os.path.exists(OUTPUT_MODEL_FILENAME):
-            os.remove(OUTPUT_MODEL_FILENAME)
-        os.rename(exported_file_path, OUTPUT_MODEL_FILENAME)
+        # --- 6. CHANGE THIS ---
+        # From:
+        # if os.path.exists(OUTPUT_MODEL_FILENAME):
+        #     os.remove(OUTPUT_MODEL_FILENAME)
+        # os.rename(exported_file_path, OUTPUT_MODEL_FILENAME)
+        # To: (use shutil.move for directories)
+        if os.path.isdir(OUTPUT_MODEL_FILENAME):
+            shutil.rmtree(OUTPUT_MODEL_FILENAME)
+        shutil.move(exported_file_path, OUTPUT_MODEL_FILENAME)
+        # --- END CHANGE ---
         print(f"Successfully renamed model to: {OUTPUT_MODEL_FILENAME}")
     except Exception as e:
         raise Exception(f"Error renaming model: {e}")

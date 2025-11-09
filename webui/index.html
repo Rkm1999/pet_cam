@@ -120,11 +120,28 @@
         <div id="page-edit" class="page">
             <header class="flex justify-between items-center mb-4 p-4 bg-gray-800 rounded-lg shadow-lg">
                 <h1 class="text-2xl font-bold text-white">Edit Prompt Library</h1>
-                <div class="flex gap-4">
+                <div class="flex gap-4 items-center"> <!-- --- ADD items-center --- -->
                     <button id="reset-all-btn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-all">
                         Reset All
                     </button>
-                    <button id="retrain-btn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-all flex items-center gap-2">
+                    
+                    <!-- --- ADD THIS NEW DROPDOWN --- -->
+                    <div>
+                        <label for="base-model-select" class="block text-sm font-medium text-gray-400">Base Model</label>
+                        <select id="base-model-select" class="bg-gray-700 border border-gray-600 rounded-lg p-2 text-white h-11">
+                            <!-- --- MODIFIED AND ADDED OPTIONS --- -->
+                            <option value="yoloe-11l-seg.pt">YOLOE-11L (Default)</option>
+                            <option value="yoloe-11m-seg.pt">YOLOE-11M</option>
+                            <option value="yoloe-11s-seg.pt">YOLOE-11S</option>
+                            <option value="yoloe-v8l-seg.pt">YOLOv8-L</option>
+                            <option value="yoloe-v8m-seg.pt">YOLOv8-M</option>
+                            <option value="yoloe-v8s-seg.pt">YOLOv8-S</option>
+                            <!-- --- END OF CHANGES --- -->
+                        </select>
+                    </div>
+                    <!-- --- END OF NEW DROPDOWN --- -->
+                    
+                    <button id="retrain-btn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-all flex items-center gap-2 self-end"> <!-- --- ADD self-end --- -->
                         <span id="retrain-btn-text">Re-Train Model</span>
                         <div id="retrain-spinner" class="spinner w-5 h-5 border-2 hidden"></div>
                     </button>
@@ -287,6 +304,11 @@
                 const response = await fetch('/api/prompt_library');
                 promptLibrary = await response.json();
                 console.log('Library loaded:', promptLibrary);
+                
+                // --- ADD THIS LINE ---
+                // Load saved model selection or use default
+                document.getElementById('base-model-select').value = promptLibrary.base_model || 'yoloe-11l-seg.pt';
+                
             } catch (e) {
                 console.error('Could not load prompt library', e);
             }
@@ -494,6 +516,12 @@
             retrainBtn.disabled = true;
             retrainBtnText.textContent = 'Training...';
             retrainSpinner.classList.remove('hidden');
+
+            // --- ADD THESE 2 LINES ---
+            // Get selected model from dropdown
+            const selectedModel = document.getElementById('base-model-select').value;
+            // Save it to the library object before sending
+            promptLibrary.base_model = selectedModel;
 
             try {
                 const response = await fetch('/api/train', {
