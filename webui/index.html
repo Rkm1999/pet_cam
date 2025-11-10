@@ -337,6 +337,58 @@
 
         // ===== 2. EDIT PAGE LOGIC =====
 
+        // --- 1. ADD THIS NEW FUNCTION ---
+        function reindexLibrary() {
+            console.log("Re-indexing library...");
+            
+            const oldClassNames = promptLibrary.class_names;
+            const oldAnnotations = promptLibrary.annotations;
+            
+            const newClassNames = {};
+            const newAnnotations = {};
+            const idMap = new Map(); // oldId -> newId
+
+            // Get sorted list of *remaining* class IDs
+            const sortedOldIds = Object.keys(oldClassNames).map(Number).sort((a, b) => a - b);
+            
+            // Build the map and new class_names
+            // e.g., [0, 1, 4] -> newIds [0, 1, 2]
+            // idMap will be {0: 0, 1: 1, 4: 2}
+            sortedOldIds.forEach((oldId, newId) => {
+                idMap.set(oldId, newId); 
+                newClassNames[newId] = oldClassNames[oldId];
+            });
+
+            console.log("Re-indexing Map:", Object.fromEntries(idMap));
+
+            // Re-map all annotations
+            for (const filename in oldAnnotations) {
+                if (!oldAnnotations[filename]) continue;
+                
+                // Note: The delete button listener *already* filtered out
+                // the boxes for the *deleted* class. We only need to
+                // re-map the ones that *remain*.
+                const newBoxes = oldAnnotations[filename]
+                    .map(box => {
+                        const newClassId = idMap.get(box.class_id);
+                        return {
+                            bbox: box.bbox,
+                            class_id: newClassId
+                        };
+                    });
+                
+                if (newBoxes.length > 0) {
+                    newAnnotations[filename] = newBoxes;
+                }
+            }
+            
+            // Overwrite global library
+            promptLibrary.class_names = newClassNames;
+            promptLibrary.annotations = newAnnotations;
+            console.log("Re-indexing complete.", promptLibrary);
+        }
+        // --- END OF NEW FUNCTION ---
+
         function renderEditorUI() {
             objectList.innerHTML = '';
             objectEditor.classList.add('hidden');
@@ -466,6 +518,7 @@
             }
         });
 
+        // --- 2. MODIFY THIS FUNCTION ---
         deleteObjectBtn.addEventListener('click', () => {
             if (activeEditorClassId === null) return;
             if (!window.confirm(`Are you sure you want to delete "${promptLibrary.class_names[activeEditorClassId]}"?\nThis will remove the object and all its annotations from all images.`)) {
@@ -488,9 +541,14 @@
                 }
             }
             
-            // 3. Reset UI
+            // 3. --- ADD THIS ---
+            // Re-index all remaining classes to be sequential
+            reindexLibrary();
+            
+            // 4. Reset UI
             renderEditorUI();
         });
+        // --- END OF MODIFICATION ---
 
         addNewPromptBtn.addEventListener('click', () => {
             if (activeEditorClassId === null) {
@@ -512,6 +570,7 @@
             }
         });
 
+        // --- 3. MODIFY THIS FUNCTION (SLIGHTLY) ---
         retrainBtn.addEventListener('click', async () => {
             retrainBtn.disabled = true;
             retrainBtnText.textContent = 'Training...';
@@ -523,11 +582,20 @@
             // Save it to the library object before sending
             promptLibrary.base_model = selectedModel;
 
+            // --- Safety check: Abort if no annotations exist ---
+            if (Object.keys(promptLibrary.annotations).length === 0) {
+                 window.alert("Training aborted. No annotations found for any objects.");
+                retrainBtn.disabled = false;
+                retrainBtnText.textContent = 'Re-Train Model';
+                retrainSpinner.classList.add('hidden');
+                return;
+            }
+
             try {
                 const response = await fetch('/api/train', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(promptLibrary)
+                    body: JSON.stringify(promptLibrary) // Send the *already compacted* library
                 });
                 
                 const data = await response.json();
@@ -554,7 +622,10 @@
             
             // Populate modal legend
             modalLegendList.innerHTML = '';
-            for (const id in promptLibrary.class_names) {
+            // --- FIX: Ensure IDs are sorted numerically ---
+            const sortedClassIds = Object.keys(promptLibrary.class_names).map(Number).sort((a,b) => a - b);
+
+            for (const id of sortedClassIds) {
                 const name = promptLibrary.class_names[id];
                 const li = document.createElement('li');
                 li.className = `flex items-center p-2 rounded-lg cursor-pointer bg-gray-800 hover:bg-gray-600 ${id == classIdToFocus ? 'active-class' : ''}`;
@@ -647,17 +718,28 @@
             }
         });
 
+        // --- 4. MODIFY THIS FUNCTION ---
         modalSaveBtn.addEventListener('click', () => {
             if (!modalState.filename) return;
 
-            // Save the modal's boxes to the global library
-            promptLibrary.annotations[modalState.filename] = modalState.boxes;
+            // --- CHANGE: Only save if boxes exist ---
+            if (modalState.boxes.length > 0) {
+                // Save the modal's boxes to the global library
+                promptLibrary.annotations[modalState.filename] = modalState.boxes;
+            } else {
+                // No boxes, so *delete* the entry for this image
+                if (promptLibrary.annotations[modalState.filename]) {
+                    delete promptLibrary.annotations[modalState.filename];
+                    console.log(`Removed empty annotation entry for ${modalState.filename}`);
+                }
+            }
+            // --- END OF CHANGE ---
             
             console.log('Saved to library:', promptLibrary);
 
             // Hide modal and re-render the gallery
             modal.classList.remove('active');
-            renderPromptGallery(activeEditorClassId);
+            renderPromptGallery(activeEditorClassId); // Re-render the gallery for the *active* class
             resetModalState();
         });
 
@@ -679,6 +761,7 @@
 
         function drawModalAnnotations() {
             modalCtx.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
+            // --- FIX: Check activeClassId is not null ---
             if (modalState.activeClassId === null) return;
             
             const activeColor = colors[modalState.activeClassId % colors.length];
