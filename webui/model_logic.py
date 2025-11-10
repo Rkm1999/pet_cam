@@ -71,7 +71,7 @@ def model_is_ready():
     # --- 3. CHANGE THIS ---
     # From: return os.path.exists(OUTPUT_MODEL_FILENAME)
     # To: Check for the directory
-    return os.path.isdir(OUTPUT_MODEL_FILENAME)
+    return os.path.exists(OUTPUT_MODEL_FILENAME)
     # --- END CHANGE ---
 
 def clear_generated_files():
