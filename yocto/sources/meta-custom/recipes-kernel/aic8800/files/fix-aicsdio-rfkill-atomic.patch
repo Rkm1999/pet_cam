@@ -1,0 +1,21 @@
+diff --git a/src/SDIO/driver_fw/driver/aic8800/aic8800_bsp/aicsdio.c b/src/SDIO/driver_fw/driver/aic8800/aic8800_bsp/aicsdio.c
+--- a/src/SDIO/driver_fw/driver/aic8800/aic8800_bsp/aicsdio.c
++++ b/src/SDIO/driver_fw/driver/aic8800/aic8800_bsp/aicsdio.c
+@@ -20,10 +20,10 @@
+ #include "aic_bsp_driver.h"
+ #include <linux/version.h>
+ #include <linux/delay.
+-#ifdef CONFIG_PLATFORM_ROCKCHIP
+-#include <linux/rfkill-wlan.h>
+-#endif /* CONFIG_PLATFORM_ROCKCHIP */
+-#ifdef CONFIG_PLATFORM_ROCKCHIP2
+-#include <linux/rfkill-wlan.h>
+-#endif /* CONFIG_PLATFORM_ROCKCHIP */
++#if defined(CONFIG_PLATFORM_ROCKCHIP) || defined(CONFIG_PLATFORM_ROCKCHIP2)
++#include <linux/rfkill.h>
++#else
++#error "Missing platform definition for RFKILL handling in aicsdio.c"
++#endif
+ 
+ 
+ #ifdef CONFIG_PLATFORM_ALLWINNER

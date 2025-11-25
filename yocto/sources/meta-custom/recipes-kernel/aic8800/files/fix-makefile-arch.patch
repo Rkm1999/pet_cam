@@ -1,0 +1,26 @@
+diff --git a/src/SDIO/driver_fw/driver/aic8800/Makefile b/src/SDIO/driver_fw/driver/aic8800/Makefile
+index 1234567..89abcde 100644
+--- a/src/SDIO/driver_fw/driver/aic8800/Makefile
++++ b/src/SDIO/driver_fw/driver/aic8800/Makefile
+@@ -22,9 +22,6 @@ export CONFIG_PLATFORM_UBUNTU = y
+ 
+ ifeq ($(CONFIG_PLATFORM_ROCKCHIP), y)
+-ARCH = arm64
+-KDIR = /home/yaya/E/Rockchip/3566/firefly/Android11.0/Firefly-RK356X_Android11.0_git_20210824/RK356X_Android11.0/kernel
+-CROSS_COMPILE = /home/yaya/E/Rockchip/3566/firefly/Android11.0/Firefly-RK356X_Android11.0_git_20210824/RK356X_Android11.0/prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-
+ ccflags-y += -DANDROID_PLATFORM
+ ccflags-y += -DCONFIG_PLATFORM_ROCKCHIP
+ endif
+diff --git a/src/SDIO/driver_fw/driver/aic8800/aic8800_fdrv/Makefile b/src/SDIO/driver_fw/driver/aic8800/aic8800_fdrv/Makefile
+index 1234567..89abcde 100644
+--- a/src/SDIO/driver_fw/driver/aic8800/aic8800_fdrv/Makefile
++++ b/src/SDIO/driver_fw/driver/aic8800/aic8800_fdrv/Makefile
+@@ -133,9 +133,6 @@ CONFIG_PLATFORM_UBUNTU ?= y
+ 
+ ifeq ($(CONFIG_PLATFORM_ROCKCHIP), y)
+-ARCH := arm64
+-KDIR ?= /home/yaya/E/Rockchip/3566/firefly/Android11.0/Firefly-RK356X_Android11.0_git_20210824/RK356X_Android11.0/kernel
+-CROSS_COMPILE := /home/yaya/E/Rockchip/3566/firefly/Android11.0/Firefly-RK356X_Android11.0_git_20210824/RK356X_Android11.0/prebuilts/gcc/linux-x86/aarch64/gcc-linaro-6.3.1-2017.05-x86_64_aarch64-linux-gnu/bin/aarch64-linux-gnu-
+ ccflags-$(CONFIG_PLATFORM_ROCKCHIP) += -DCONFIG_PLATFORM_ROCKCHIP
+ ccflags-y += -DANDROID_PLATFORM
+ endif

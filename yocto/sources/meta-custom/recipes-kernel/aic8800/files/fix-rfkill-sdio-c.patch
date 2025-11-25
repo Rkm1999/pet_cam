@@ -1,0 +1,15 @@
+--- a/src/SDIO/driver_fw/driver/aic8800/aic8800_fdrv/aicwf_sdio.c
++++ b/src/SDIO/driver_fw/driver/aic8800/aic8800_fdrv/aicwf_sdio.c
+...
+ #ifdef CONFIG_INGENIC_T20
+ #include "mach/jzmmc.h"
+ #endif /* CONFIG_INGENIC_T20 */
+ #ifdef CONFIG_PLATFORM_ROCKCHIP
+-#include <linux/rfkill-wlan.h>
++#include <linux/rfkill.h>
+ #endif
+ #ifdef CONFIG_PLATFORM_ROCKCHIP2
+-#include <linux/rfkill-wlan.h>
++#include <linux/rfkill.h>
+ #endif
+...

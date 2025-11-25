@@ -1,0 +1,12 @@
+diff --git a/src/SDIO/driver_fw/driver/aic8800/aic8800_bsp/aicsdio.c b/src/SDIO/driver_fw/driver/aic8800/aic8800_bsp/aicsdio.c
+--- a/src/SDIO/driver_fw/driver/aic8800/aic8800_bsp/aicsdio.c
++++ b/src/SDIO/driver_fw/driver/aic8800/aic8800_bsp/aicsdio.c
+@@ -21,7 +21,7 @@
+ #include "aic_bsp_driver.h"
+ #include "aic_bsp_main.h"
+ #include "aicsdio.h"
+-#include <linux/rfkill-wlan.h>
++#include <linux/rfkill.h>
+ #ifdef AICWF_SDIO_SUPPORT
+ #include <linux/mmc/sdio_func.h>
+ #endif

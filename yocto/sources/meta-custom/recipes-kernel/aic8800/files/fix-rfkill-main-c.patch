@@ -1,0 +1,16 @@
+diff --git a/src/SDIO/driver_fw/driver/aic8800/aic8800_fdrv/rwnx_main.c b/src/SDIO/driver_fw/driver/aic8800/aic8800_fdrv/rwnx_main.c
+--- a/src/SDIO/driver_fw/driver/aic8800/aic8800_fdrv/rwnx_main.c
++++ b/src/SDIO/driver_fw/driver/aic8800/aic8800_fdrv/rwnx_main.c
+@@ -5444,10 +5444,10 @@
+ #endif
+ 
+ #ifdef CONFIG_PLATFORM_ROCKCHIP
+-#include <linux/rfkill-wlan.h>
++#include <linux/rfkill.h>
+ #endif
+ #ifdef CONFIG_PLATFORM_ROCKCHIP2
+-#include <linux/rfkill-wlan.h>
++#include <linux/rfkill.h>
+ #endif
+ 
+ #ifdef CONFIG_USE_CUSTOMER_MAC

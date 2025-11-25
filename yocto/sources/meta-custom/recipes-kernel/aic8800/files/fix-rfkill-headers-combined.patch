@@ -1,0 +1,45 @@
+diff --git a/src/SDIO/driver_fw/driver/aic8800/aic8800_bsp/aicsdio.c b/src/SDIO/driver_fw/driver/aic8800/aic8800_bsp/aicsdio.c
+--- a/src/SDIO/driver_fw/driver/aic8800/aic8800_bsp/aicsdio.c
++++ b/src/SDIO/driver_fw/driver/aic8800/aic8800_bsp/aicsdio.c
+@@ -21,7 +21,7 @@
+ #include "aic_bsp_driver.h"
+ #include "aic_bsp_main.h"
+ #include "aicsdio.h"
+-#include <linux/rfkill-wlan.h>
++#include <linux/rfkill.h>
+ #ifdef AICWF_SDIO_SUPPORT
+ #include <linux/mmc/sdio_func.h>
+ #endif
+diff --git a/src/SDIO/driver_fw/driver/aic8800/aic8800_fdrv/aicwf_sdio.c b/src/SDIO/driver_fw/driver/aic8800/aic8800_fdrv/aicwf_sdio.c
+--- a/src/SDIO/driver_fw/driver/aic8800/aic8800_fdrv/aicwf_sdio.c
++++ b/src/SDIO/driver_fw/driver/aic8800/aic8800_fdrv/aicwf_sdio.c
+@@ -34,10 +34,10 @@
+ #ifdef CONFIG_INGENIC_T20
+ #include "mach/jzmmc.h"
+ #endif /* CONFIG_INGENIC_T20 */
+ #ifdef CONFIG_PLATFORM_ROCKCHIP
+-#include <linux/rfkill-wlan.h>
++#include <linux/rfkill.h>
+ #endif
+ #ifdef CONFIG_PLATFORM_ROCKCHIP2
+-#include <linux/rfkill-wlan.h>
++#include <linux/rfkill.h>
+ #endif
+ 
+ #include "aic_bsp_export.h"
+diff --git a/src/SDIO/driver_fw/driver/aic8800/aic8800_fdrv/rwnx_main.c b/src/SDIO/driver_fw/driver/aic8800/aic8800_fdrv/rwnx_main.c
+--- a/src/SDIO/driver_fw/driver/aic8800/aic8800_fdrv/rwnx_main.c
++++ b/src/SDIO/driver_fw/driver/aic8800/aic8800_fdrv/rwnx_main.c
+@@ -5444,10 +5444,10 @@
+ #endif
+ 
+ #ifdef CONFIG_PLATFORM_ROCKCHIP
+-#include <linux/rfkill-wlan.h>
++#include <linux/rfkill.h>
+ #endif
+ #ifdef CONFIG_PLATFORM_ROCKCHIP2
+-#include <linux/rfkill-wlan.h>
++#include <linux/rfkill.h>
+ #endif
+ 
+ #ifdef CONFIG_USE_CUSTOMER_MAC
