@@ -5,7 +5,7 @@ LICENSE = "GPL-3.0-only"
 LIC_FILES_CHKSUM = "file://LICENSE;md5=1ebbd3e34237af26da5dc08a4e440464"
 
 # Use your local fixed repo
-SRC_URI = "git:///home/ryu/aic8800-fix;protocol=file;branch=main"
+SRC_URI = "git://${TOPDIR}/../sources/aic8800-fix;protocol=file;branch=main"
 SRCREV = "${AUTOREV}"
 
 S = "${WORKDIR}/git"

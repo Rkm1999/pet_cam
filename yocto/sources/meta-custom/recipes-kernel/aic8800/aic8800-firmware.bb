@@ -4,7 +4,7 @@ SUMMARY = "Firmware binaries for Aicsemi AIC8800 Wi-Fi Chipset"
 LICENSE = "CLOSED"
 
 # Use local repo
-SRC_URI = "git:///home/ryu/aic8800-fix;protocol=file;branch=main"
+SRC_URI = "git://${TOPDIR}/../sources/aic8800-fix;protocol=file;branch=main"
 SRCREV = "${AUTOREV}"
 
 S = "${WORKDIR}/git"
