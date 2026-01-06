@@ -1,0 +1,12 @@
+[Unit]
+Description=Serial Getty on %I
+After=usb-gadget.service
+After=systemd-user-sessions.service
+
+[Service]
+ExecStart=-/sbin/agetty 115200 %I vt102
+Restart=always
+Type=simple
+
+[Install]
+WantedBy=multi-user.target
